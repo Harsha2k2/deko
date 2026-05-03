@@ -1,4 +1,6 @@
 use sqlx::SqlitePool;
+use std::sync::Arc;
+use std::time::Instant;
 use tracing::{info, warn};
 
 use crate::config::{Config, LLMProvider};
@@ -8,16 +10,18 @@ use crate::services::llm::LLMProviderTrait;
 use crate::services::llm::VerdictResult;
 use crate::services::providers::{GeminiProvider, OpenAIProvider};
 use crate::services::webhook::WebhookService;
+use crate::services::metrics::MetricsCollector;
 
 pub struct VerdictService {
     pub pool: SqlitePool,
     pub providers: Vec<Box<dyn LLMProviderTrait>>,
     pub default_provider_idx: usize,
     pub webhook: WebhookService,
+    pub metrics: Arc<MetricsCollector>,
 }
 
 impl VerdictService {
-    pub fn new(pool: SqlitePool, config: &Config) -> Self {
+    pub fn new(pool: SqlitePool, config: &Config, metrics: Arc<MetricsCollector>) -> Self {
         let mut providers: Vec<Box<dyn LLMProviderTrait>> = Vec::new();
         let mut default_idx = 0;
 
@@ -52,6 +56,7 @@ impl VerdictService {
             providers,
             default_provider_idx: default_idx,
             webhook: WebhookService::new(config.webhook_url.clone()),
+            metrics,
         }
     }
 
@@ -123,15 +128,22 @@ impl VerdictService {
     ) -> VerdictResult {
         let primary = &self.providers[self.default_provider_idx];
 
+        let start = Instant::now();
+        self.metrics.inc_llm_call();
+
         match primary.analyze_action(
             &action.intent,
             action.payload.as_deref(),
             action.screenshot_base64.as_deref(),
             policy_context,
         ).await {
-            Ok(result) => result,
+            Ok(result) => {
+                self.metrics.record_llm_latency(start.elapsed().as_millis() as u64);
+                result
+            }
             Err(e) => {
                 warn!("Primary provider failed: {}", e);
+                self.metrics.inc_llm_error();
                 if self.providers.len() > 1 {
                     let fallback_idx = if self.default_provider_idx == 0 { 1 } else { 0 };
                     let fallback = &self.providers[fallback_idx];
@@ -141,9 +153,13 @@ impl VerdictService {
                         action.screenshot_base64.as_deref(),
                         policy_context,
                     ).await {
-                        Ok(result) => result,
+                        Ok(result) => {
+                            self.metrics.record_llm_latency(start.elapsed().as_millis() as u64);
+                            result
+                        }
                         Err(e2) => {
                             warn!("Fallback provider also failed: {}", e2);
+                            self.metrics.inc_llm_error();
                             VerdictResult {
                                 decision: crate::models::VerdictDecision::Denied,
                                 reason: format!("All LLM providers failed. Primary: {}, Fallback: {}", e, e2),
@@ -310,10 +326,20 @@ impl VerdictService {
         let verdict_id = uuid::Uuid::new_v4().to_string();
 
         let status = match verdict.decision {
-            crate::models::VerdictDecision::Approved => ActionStatus::Approved,
-            crate::models::VerdictDecision::Denied => ActionStatus::Denied,
-            crate::models::VerdictDecision::Escalate => ActionStatus::Escalated,
+            crate::models::VerdictDecision::Approved => {
+                self.metrics.inc_action_approved();
+                ActionStatus::Approved
+            }
+            crate::models::VerdictDecision::Denied => {
+                self.metrics.inc_action_denied();
+                ActionStatus::Denied
+            }
+            crate::models::VerdictDecision::Escalate => {
+                self.metrics.inc_action_escalated();
+                ActionStatus::Escalated
+            }
         };
+        self.metrics.inc_action();
 
         let mut tx = self.pool.begin().await.map_err(AppError::Database)?;
 

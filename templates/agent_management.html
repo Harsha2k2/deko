@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+
+{% block title %}Deko - Agents{% endblock %}
+
+{% block content %}
+<h1>Agent Management</h1>
+
+<div class="detail-card">
+    <h3>Register New Agent</h3>
+    <form id="register-agent-form">
+        <div class="form-group">
+            <label for="agent-name">Agent Name</label>
+            <input type="text" id="agent-name" name="name" required>
+        </div>
+        <button type="submit" class="btn btn-primary">Register Agent</button>
+    </form>
+    <div id="register-result" class="alert" style="display:none; margin-top: 1rem;"></div>
+</div>
+
+<h2>Active Agents</h2>
+{% if agents.is_empty() %}
+<div class="alert alert-info">No agents registered yet.</div>
+{% else %}
+<table>
+    <thead>
+        <tr>
+            <th>ID</th>
+            <th>Name</th>
+            <th>Active</th>
+            <th>Created</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for agent in agents %}
+        <tr>
+            <td><code>{{ agent.id[..8] }}</code></td>
+            <td>{{ agent.name }}</td>
+            <td>
+                {% if agent.active %}
+                <span class="badge-approved">Active</span>
+                {% else %}
+                <span class="badge-denied">Revoked</span>
+                {% endif %}
+            </td>
+            <td>{{ agent.created_at[..19] }}</td>
+            <td>
+                {% if agent.active %}
+                <button class="btn btn-sm btn-danger revoke-btn" data-agent-id="{{ agent.id }}">Revoke</button>
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endif %}
+
+<script>
+document.getElementById('register-agent-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const name = document.getElementById('agent-name').value;
+    const result = document.getElementById('register-result');
+    try {
+        const resp = await fetch('/admin/agents/register', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Admin-Password': localStorage.getItem('deko_admin') || '' },
+            body: JSON.stringify({ name }),
+        });
+        const data = await resp.json();
+        if (resp.ok) {
+            result.className = 'alert alert-success';
+            result.textContent = 'API Key: ' + data.api_key + ' (save this securely!)';
+        } else {
+            result.className = 'alert alert-error';
+            result.textContent = data.error || 'Registration failed';
+        }
+    } catch (err) {
+        result.className = 'alert alert-error';
+        result.textContent = err.message;
+    }
+    result.style.display = 'block';
+});
+
+document.querySelectorAll('.revoke-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+        const agentId = btn.dataset.agentId;
+        if (!confirm('Revoke agent ' + agentId + '?')) return;
+        const resp = await fetch('/admin/agents/revoke', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Admin-Password': localStorage.getItem('deko_admin') || '' },
+            body: JSON.stringify({ agent_id: agentId }),
+        });
+        if (resp.ok) location.reload();
+    });
+});
+</script>
+{% endblock %}

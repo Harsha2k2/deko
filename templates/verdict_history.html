@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+
+{% block title %}Deko - Verdict History{% endblock %}
+
+{% block content %}
+<h1>Verdict History</h1>
+
+<div class="alert alert-info">
+    <strong>Filter by decision:</strong>
+    <a href="/admin/verdicts">All</a> |
+    <a href="/admin/verdicts?decision=approved">Approved</a> |
+    <a href="/admin/verdicts?decision=denied">Denied</a> |
+    <a href="/admin/verdicts?decision=escalate">Escalated</a>
+</div>
+
+{% if verdicts.is_empty() %}
+<div class="alert alert-info">No verdicts recorded yet.</div>
+{% else %}
+<table>
+    <thead>
+        <tr>
+            <th>Action ID</th>
+            <th>Decision</th>
+            <th>Risk Level</th>
+            <th>Reason</th>
+            <th>Policy Matched</th>
+            <th>Created</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for verdict in verdicts %}
+        <tr>
+            <td><a href="/admin/actions/{{ verdict.action_id }}"><code>{{ verdict.action_id[..8] }}</code></a></td>
+            <td><span class="badge-{{ verdict.decision }}">{{ verdict.decision }}</span></td>
+            <td>
+                {% if let Some(risk) = verdict.risk_level %}
+                <span class="badge-{{ risk }}">{{ risk }}</span>
+                {% else %}-{% endif %}
+            </td>
+            <td>{{ verdict.reason[..verdict.reason.len().min(80)] }}{% if verdict.reason.len() > 80 %}...{% endif %}</td>
+            <td>{% if let Some(p) = verdict.policy_matched %}{{ p }}{% else %}LLM{% endif %}</td>
+            <td>{{ verdict.created_at[..19] }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endif %}
+{% endblock %}

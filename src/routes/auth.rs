@@ -160,3 +160,73 @@ pub async fn list_agents(
 
     Ok(Json(ListAgentsResponse { agents }))
 }
+
+#[derive(Deserialize, ToSchema)]
+pub struct RotateApiKeyRequest {
+    pub agent_id: String,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct RotateApiKeyResponse {
+    pub agent_id: String,
+    pub new_api_key: String,
+    pub rotated_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[utoipa::path(
+    post,
+    path = "/admin/agents/rotate-key",
+    request_body = RotateApiKeyRequest,
+    responses(
+        (status = 200, description = "API key rotated", body = RotateApiKeyResponse),
+        (status = 404, description = "Agent not found"),
+    )
+)]
+pub async fn rotate_agent_key(
+    State(pool): State<SqlitePool>,
+    axum::Extension(admin): axum::Extension<bool>,
+    Json(req): Json<RotateApiKeyRequest>,
+) -> Result<(StatusCode, Json<RotateApiKeyResponse>)> {
+    if !admin {
+        return Err(AppError::Forbidden("Admin access required".into()));
+    }
+
+    let new_api_key = uuid::Uuid::new_v4().to_string();
+
+    let secret = std::env::var("DEKO_API_KEY_SECRET")
+        .map_err(|_| AppError::Internal)?;
+    let new_hash = hash_api_key(&new_api_key, &secret);
+
+    let result = sqlx::query("UPDATE agents SET api_key_hash = ?, updated_at = datetime('now') WHERE id = ? AND active = 1")
+        .bind(&new_hash)
+        .bind(&req.agent_id)
+        .execute(&pool)
+        .await
+        .map_err(AppError::Database)?;
+
+    if result.rows_affected() == 0 {
+        return Err(AppError::NotFound("Agent not found or inactive".into()));
+    }
+
+    sqlx::query(
+        "INSERT INTO audit_log (id, action_id, event_type, details) VALUES (?, ?, ?, ?)",
+    )
+    .bind(uuid::Uuid::new_v4().to_string())
+    .bind::<Option<String>>(None)
+    .bind("api_key_rotated")
+    .bind(serde_json::json!({ "agent_id": req.agent_id }))
+    .execute(&pool)
+    .await
+    .map_err(AppError::Database)?;
+
+    let now = chrono::Utc::now();
+
+    Ok((
+        StatusCode::OK,
+        Json(RotateApiKeyResponse {
+            agent_id: req.agent_id,
+            new_api_key,
+            rotated_at: now,
+        }),
+    ))
+}

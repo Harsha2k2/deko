@@ -135,37 +135,53 @@ impl LLMProviderTrait for OpenAIProvider {
 
         info!("OpenAI request: model={}, intent_len={}", self.model, intent.len());
 
-        let response = self
-            .client
-            .post("https://api.openai.com/v1/chat/completions")
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .header("Content-Type", "application/json")
-            .json(&req_body)
-            .send()
-            .await;
-
-        match response {
-            Ok(resp) => {
-                let status = resp.status();
-                if !status.is_success() {
-                    let body = resp.text().await.unwrap_or_default();
-                    error!("OpenAI API error: {} - {}", status, body);
-                    return Err(AppError::OpenAI(format!("OpenAI returned {}: {}", status, body)));
-                }
-
-                let parsed: VisionResponse = resp.json().await.map_err(|e| {
-                    AppError::OpenAI(format!("Failed to parse OpenAI response: {}", e))
-                })?;
-
-                let content = parsed
-                    .choices
-                    .first()
-                    .map(|c| c.message.content.clone())
-                    .unwrap_or_default();
-
-                parse_verdict_json(&content, LLMProvider::OpenAI, self.model.clone())
+        let mut last_err = None;
+        for attempt in 0..=2 {
+            if attempt > 0 {
+                let delay = std::time::Duration::from_millis(500 * 2u64.pow(attempt as u32));
+                info!("OpenAI retry attempt {}/2, waiting {:?}...", attempt, delay);
+                tokio::time::sleep(delay).await;
             }
-            Err(e) => Err(AppError::OpenAI(format!("OpenAI request failed: {}", e))),
+
+            let response = self
+                .client
+                .post("https://api.openai.com/v1/chat/completions")
+                .header("Authorization", format!("Bearer {}", self.api_key))
+                .header("Content-Type", "application/json")
+                .json(&req_body)
+                .send()
+                .await;
+
+            match response {
+                Ok(resp) => {
+                    let status = resp.status();
+                    if !status.is_success() {
+                        let body = resp.text().await.unwrap_or_default();
+                        error!("OpenAI API error (attempt {}): {} - {}", attempt + 1, status, body);
+                        last_err = Some(AppError::OpenAI(format!("OpenAI returned {}: {}", status, body)));
+                        continue;
+                    }
+
+                    let parsed: VisionResponse = resp.json().await.map_err(|e| {
+                        AppError::OpenAI(format!("Failed to parse OpenAI response: {}", e))
+                    })?;
+
+                    let content = parsed
+                        .choices
+                        .first()
+                        .map(|c| c.message.content.clone())
+                        .unwrap_or_default();
+
+                    info!("OpenAI response received on attempt {}", attempt + 1);
+                    return parse_verdict_json(&content, LLMProvider::OpenAI, self.model.clone());
+                }
+                Err(e) => {
+                    error!("OpenAI request failed (attempt {}): {}", attempt + 1, e);
+                    last_err = Some(AppError::OpenAI(format!("OpenAI request failed: {}", e)));
+                }
+            }
         }
+
+        Err(last_err.unwrap_or_else(|| AppError::OpenAI("OpenAI exhausted all retries".into())))
     }
 }

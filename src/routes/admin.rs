@@ -110,9 +110,37 @@ impl ActionDetailTemplate {
     }
 }
 
+impl AuditLogTemplate {
+    fn to_html(&self) -> String {
+        self.render().unwrap_or_else(|e| format!("Template error: {}", e))
+    }
+}
+
+impl AgentManagementTemplate {
+    fn to_html(&self) -> String {
+        self.render().unwrap_or_else(|e| format!("Template error: {}", e))
+    }
+}
+
+impl PolicyManagementTemplate {
+    fn to_html(&self) -> String {
+        self.render().unwrap_or_else(|e| format!("Template error: {}", e))
+    }
+}
+
+impl VerdictHistoryTemplate {
+    fn to_html(&self) -> String {
+        self.render().unwrap_or_else(|e| format!("Template error: {}", e))
+    }
+}
+
 #[derive(Deserialize)]
 pub struct AdminLoginRequest {
     pub password: String,
+}
+
+pub async fn admin_logout() -> axum::response::Redirect {
+    axum::response::Redirect::to("/admin/login")
 }
 
 pub async fn admin_login_page() -> Html<String> {
@@ -336,4 +364,177 @@ pub async fn override_action(
     tx.commit().await.map_err(AppError::Database)?;
 
     Ok(axum::response::Redirect::to(&format!("/admin/actions/{}", id)))
+}
+
+#[derive(Template)]
+#[template(path = "audit_log.html")]
+struct AuditLogTemplate {
+    entries: Vec<AuditLogRow>,
+    total: i64,
+}
+
+#[derive(Debug, Clone)]
+struct AuditLogRow {
+    id: String,
+    action_id: Option<String>,
+    event_type: String,
+    details: String,
+    created_at: String,
+}
+
+pub async fn audit_log_viewer(
+    State(pool): State<SqlitePool>,
+    Query(params): Query<AuditQuery>,
+) -> Html<String> {
+    let page = params.page.unwrap_or(1);
+    let per_page = 50;
+    let offset = (page - 1) * per_page;
+
+    let total: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM audit_log")
+        .fetch_one(&pool).await.map_err(AppError::Database).unwrap_or((0,));
+
+    let mut query = "SELECT id, action_id, event_type, details, created_at FROM audit_log WHERE 1=1".to_string();
+
+    if let Some(action_id) = &params.action_id {
+        query.push_str(" AND action_id = '");
+        query.push_str(action_id);
+        query.push('\'');
+    }
+
+    if let Some(event_type) = &params.event_type {
+        query.push_str(" AND event_type = '");
+        query.push_str(event_type);
+        query.push('\'');
+    }
+
+    query.push_str(&format!(" ORDER BY created_at DESC LIMIT {} OFFSET {}", per_page, offset));
+
+    let rows: Vec<(String, Option<String>, String, String, String)> = sqlx::query_as(&query)
+        .fetch_all(&pool).await.unwrap_or_default();
+
+    let entries = rows.into_iter().map(|r| AuditLogRow {
+        id: r.0,
+        action_id: r.1,
+        event_type: r.2,
+        details: r.3,
+        created_at: r.4,
+    }).collect();
+
+    Html(AuditLogTemplate { entries, total: total.0 }.to_html())
+}
+
+#[derive(Deserialize)]
+pub struct AuditQuery {
+    pub action_id: Option<String>,
+    pub event_type: Option<String>,
+    pub page: Option<i64>,
+}
+
+#[derive(Template)]
+#[template(path = "agent_management.html")]
+struct AgentManagementTemplate {
+    agents: Vec<AgentRow>,
+}
+
+#[derive(Debug, Clone)]
+struct AgentRow {
+    id: String,
+    name: String,
+    active: bool,
+    created_at: String,
+}
+
+#[derive(Template)]
+#[template(path = "policy_management.html")]
+struct PolicyManagementTemplate {
+    policies: Vec<PolicyRow>,
+}
+
+#[derive(Debug, Clone)]
+struct PolicyRow {
+    name: String,
+    description: String,
+    rules: String,
+    active: bool,
+    created_at: String,
+}
+
+#[derive(Template)]
+#[template(path = "verdict_history.html")]
+struct VerdictHistoryTemplate {
+    verdicts: Vec<VerdictRow>,
+}
+
+#[derive(Debug, Clone)]
+struct VerdictRow {
+    action_id: String,
+    decision: String,
+    risk_level: Option<String>,
+    reason: String,
+    policy_matched: Option<String>,
+    created_at: String,
+}
+
+pub async fn agent_management(State(pool): State<SqlitePool>) -> Html<String> {
+    let agents: Vec<(String, String, bool, String)> = sqlx::query_as(
+        "SELECT id, name, active, created_at FROM agents ORDER BY created_at DESC",
+    )
+    .fetch_all(&pool).await.unwrap_or_default();
+
+    let agents = agents.into_iter().map(|a| AgentRow {
+        id: a.0,
+        name: a.1,
+        active: a.2,
+        created_at: a.3,
+    }).collect();
+
+    Html(AgentManagementTemplate { agents }.to_html())
+}
+
+pub async fn policy_management(State(pool): State<SqlitePool>) -> Html<String> {
+    let policies: Vec<(String, String, String, String, bool, String, String)> = sqlx::query_as(
+        "SELECT id, name, description, rules, active, created_at, updated_at FROM policies ORDER BY created_at DESC",
+    )
+    .fetch_all(&pool).await.unwrap_or_default();
+
+    let policies = policies.into_iter().map(|p| PolicyRow {
+        name: p.1,
+        description: p.2,
+        rules: p.3,
+        active: p.4,
+        created_at: p.5,
+    }).collect();
+
+    Html(PolicyManagementTemplate { policies }.to_html())
+}
+
+#[derive(Deserialize)]
+pub struct VerdictsQuery {
+    pub decision: Option<String>,
+}
+
+pub async fn verdict_history(State(pool): State<SqlitePool>, Query(params): Query<VerdictsQuery>) -> Html<String> {
+    let mut query = "SELECT action_id, decision, risk_level, reason, policy_matched, created_at FROM verdicts WHERE 1=1".to_string();
+
+    if let Some(decision) = &params.decision {
+        query.push_str(" AND decision = '");
+        query.push_str(decision);
+        query.push('\'');
+    }
+
+    query.push_str(" ORDER BY created_at DESC LIMIT 100");
+
+    let rows: Vec<(String, String, String, String, Option<String>, String)> = sqlx::query_as(&query)
+        .fetch_all(&pool).await.unwrap_or_default();
+
+    let verdicts = rows.into_iter().map(|v| VerdictRow {
+        action_id: v.0,
+        decision: v.1,
+        risk_level: Some(v.2),
+        reason: v.3,
+        policy_matched: v.4,
+        created_at: v.5,
+    }).collect();
+
+    Html(VerdictHistoryTemplate { verdicts }.to_html())
 }

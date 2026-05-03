@@ -1,7 +1,7 @@
 use deko::config::Config;
 use deko::db::{init_db, run_migrations};
 use deko::routes::create_router;
-use deko::services::{ActionProcessor, GeminiProvider, VerdictService, VerdictResult, LLMProviderTrait};
+use deko::services::{ActionProcessor, GeminiProvider, VerdictService, VerdictResult, LLMProviderTrait, MetricsCollector};
 use deko::models::{ActionStatus, VerdictDecision, RiskLevel};
 use async_trait::async_trait;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -139,7 +139,8 @@ async fn test_fail_closed_on_openai_failure() {
     .await
     .unwrap();
 
-    let verdict_service = VerdictService::new(pool.clone(), &config);
+    let metrics = Arc::new(MetricsCollector::new());
+    let verdict_service = VerdictService::new(pool.clone(), &config, metrics);
     let _ = verdict_service.process_action(&action_id).await;
 
     let status: (String,) = sqlx::query_as(
@@ -199,7 +200,8 @@ async fn test_policy_deny_keyword() {
     .await
     .unwrap();
 
-    let verdict_service = VerdictService::new(pool.clone(), &config);
+    let metrics = Arc::new(MetricsCollector::new());
+    let verdict_service = VerdictService::new(pool.clone(), &config, metrics);
     let _ = verdict_service.process_action(&action_id).await;
 
     let status: (String,) = sqlx::query_as(
@@ -222,12 +224,9 @@ fn test_config_validation_fails_missing_secret() {
 
 #[test]
 fn test_config_default_values() {
-    // NOTE: This test is env-order dependent since tests run in parallel.
-    // We just verify the config struct exists with sensible defaults.
     let result = Config::from_env();
-    // It may succeed or fail depending on env state from other tests
     if let Ok(config) = result {
-        assert!(config.port > 0);
+        assert!(config.port <= 65535);
         assert_eq!(config.max_screenshot_size_mb, 10);
         assert_eq!(config.rate_limit_per_minute, 60);
     }

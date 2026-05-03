@@ -12,6 +12,7 @@ use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
 use crate::config::Config;
+use crate::services::metrics::{MetricsCollector, RateLimiter};
 
 #[derive(OpenApi)]
 #[openapi(
@@ -20,6 +21,7 @@ use crate::config::Config;
         auth::register_agent,
         auth::revoke_agent,
         auth::list_agents,
+        auth::rotate_agent_key,
         actions::create_action,
         actions::get_action,
         actions::get_action_status,
@@ -51,6 +53,8 @@ use crate::config::Config;
         auth::RegisterAgentRequest,
         auth::ListAgentsResponse,
         auth::AgentSummary,
+        auth::RotateApiKeyRequest,
+        auth::RotateApiKeyResponse,
         policies::CreatePolicyRequest,
         policies::UpdatePolicyRequest,
         health::HealthResponse,
@@ -68,6 +72,9 @@ pub fn create_router(config: &Config, pool: SqlitePool) -> anyhow::Result<Router
         config.max_request_body_kb * 1024,
     );
 
+    let metrics = MetricsCollector::new();
+    let rate_limiter = RateLimiter::new(config.rate_limit_per_minute, 60);
+
     let auth_state = crate::middleware::auth::AgentState {
         pool: pool.clone(),
         api_key_secret: config.api_key_secret.clone(),
@@ -82,36 +89,52 @@ pub fn create_router(config: &Config, pool: SqlitePool) -> anyhow::Result<Router
         .layer(axum::middleware::from_fn_with_state(
             auth_state.clone(),
             crate::middleware::auth::auth_middleware,
-        ));
+        ))
+        .layer(axum::middleware::from_fn(
+            crate::services::rate_limit_middleware,
+        ))
+        .layer(axum::Extension(rate_limiter.clone()));
 
     let admin_routes = Router::new()
         .route("/admin", axum::routing::get(admin::dashboard))
-        .route("/admin/login", axum::routing::post(admin::admin_login))
+        .route("/admin/login", axum::routing::get(admin::admin_login_page).post(admin::admin_login))
+        .route("/admin/logout", axum::routing::post(admin::admin_logout))
         .route("/admin/actions", axum::routing::get(admin::list_admin_actions))
         .route("/admin/actions/{id}", axum::routing::get(admin::get_admin_action_detail))
         .route("/admin/actions/{id}/override", axum::routing::post(admin::override_action))
-        .route("/admin/agents", axum::routing::get(auth::list_agents))
+        .route("/admin/agents", axum::routing::get(admin::agent_management))
         .route("/admin/agents/register", axum::routing::post(auth::register_agent))
         .route("/admin/agents/revoke", axum::routing::post(auth::revoke_agent))
-        .route("/admin/policies", axum::routing::get(policies::list_policies))
-        .route("/admin/policies", axum::routing::post(policies::create_policy))
+        .route("/admin/agents/rotate-key", axum::routing::post(auth::rotate_agent_key))
+        .route("/admin/policies", axum::routing::get(admin::policy_management).post(policies::create_policy))
         .route("/admin/policies/{id}", axum::routing::put(policies::update_policy))
         .route("/admin/policies/{id}", axum::routing::delete(policies::delete_policy))
+        .route("/admin/verdicts", axum::routing::get(admin::verdict_history))
+        .route("/admin/audit", axum::routing::get(admin::audit_log_viewer))
         .layer(axum::middleware::from_fn(admin_auth_middleware));
 
     let app = Router::new()
         .route("/health", axum::routing::get(health::health))
         .route("/health/ready", axum::routing::get(health::readiness))
         .route("/health/live", axum::routing::get(health::liveness))
+        .route("/metrics", axum::routing::get(metrics_endpoint))
         .merge(admin_routes)
         .merge(protected_routes)
         .merge(SwaggerUi::new("/docs").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .layer(TraceLayer::new_for_http())
         .layer(cors)
         .layer(body_limit)
+        .layer(axum::middleware::from_fn(crate::services::request_metrics_middleware))
+        .layer(axum::Extension(metrics))
         .with_state(pool);
 
     Ok(app)
+}
+
+pub async fn metrics_endpoint(
+    axum::Extension(metrics): axum::Extension<MetricsCollector>,
+) -> axum::Json<serde_json::Value> {
+    axum::Json(metrics.to_json())
 }
 
 async fn admin_auth_middleware(

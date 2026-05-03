@@ -116,38 +116,54 @@ impl LLMProviderTrait for GeminiProvider {
 
         info!("Gemini request: model={}, intent_len={}", self.model, intent.len());
 
-        let response = self
-            .client
-            .post(self.build_url())
-            .header("Content-Type", "application/json")
-            .json(&req_body)
-            .send()
-            .await;
-
-        match response {
-            Ok(resp) => {
-                let status = resp.status();
-                if !status.is_success() {
-                    let body = resp.text().await.unwrap_or_default();
-                    error!("Gemini API error: {} - {}", status, body);
-                    return Err(AppError::OpenAI(format!("Gemini returned {}: {}", status, body)));
-                }
-
-                let parsed: GeminiResponse = resp.json().await.map_err(|e| {
-                    AppError::OpenAI(format!("Failed to parse Gemini response: {}", e))
-                })?;
-
-                let content = parsed
-                    .candidates
-                    .first()
-                    .and_then(|c| c.content.parts.first())
-                    .and_then(|p| p.text.clone())
-                    .unwrap_or_default();
-
-                parse_verdict_json(&content, LLMProvider::Gemini, self.model.clone())
+        let mut last_err = None;
+        for attempt in 0..=2 {
+            if attempt > 0 {
+                let delay = std::time::Duration::from_millis(500 * 2u64.pow(attempt as u32));
+                info!("Gemini retry attempt {}/2, waiting {:?}...", attempt, delay);
+                tokio::time::sleep(delay).await;
             }
-            Err(e) => Err(AppError::OpenAI(format!("Gemini request failed: {}", e))),
+
+            let response = self
+                .client
+                .post(self.build_url())
+                .header("Content-Type", "application/json")
+                .json(&req_body)
+                .send()
+                .await;
+
+            match response {
+                Ok(resp) => {
+                    let status = resp.status();
+                    if !status.is_success() {
+                        let body = resp.text().await.unwrap_or_default();
+                        error!("Gemini API error (attempt {}): {} - {}", attempt + 1, status, body);
+                        last_err = Some(AppError::OpenAI(format!("Gemini returned {}: {}", status, body)));
+                        continue;
+                    }
+
+                    let parsed: GeminiResponse = resp.json().await.map_err(|e| {
+                        AppError::OpenAI(format!("Failed to parse Gemini response: {}", e))
+                    })?;
+
+                    let content = parsed
+                        .candidates
+                        .first()
+                        .and_then(|c| c.content.parts.first())
+                        .and_then(|p| p.text.clone())
+                        .unwrap_or_default();
+
+                    info!("Gemini response received on attempt {}", attempt + 1);
+                    return parse_verdict_json(&content, LLMProvider::Gemini, self.model.clone());
+                }
+                Err(e) => {
+                    error!("Gemini request failed (attempt {}): {}", attempt + 1, e);
+                    last_err = Some(AppError::OpenAI(format!("Gemini request failed: {}", e)));
+                }
+            }
         }
+
+        Err(last_err.unwrap_or_else(|| AppError::OpenAI("Gemini exhausted all retries".into())))
     }
 }
 

@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+
+{% block title %}Deko - Policies{% endblock %}
+
+{% block content %}
+<h1>Policy Management</h1>
+
+<div class="detail-card">
+    <h3>Create New Policy</h3>
+    <form id="create-policy-form">
+        <div class="form-group">
+            <label for="policy-name">Policy Name</label>
+            <input type="text" id="policy-name" name="name" required>
+        </div>
+        <div class="form-group">
+            <label for="policy-desc">Description</label>
+            <input type="text" id="policy-desc" name="description" required>
+        </div>
+        <div class="form-group">
+            <label for="policy-rules">Rules (JSON)</label>
+            <textarea id="policy-rules" name="rules" rows="5" required placeholder='[{"type": "deny_keyword", "value": "delete"}]'></textarea>
+        </div>
+        <button type="submit" class="btn btn-primary">Create Policy</button>
+    </form>
+    <div id="create-result" class="alert" style="display:none; margin-top: 1rem;"></div>
+</div>
+
+<h2>Active Policies</h2>
+{% if policies.is_empty() %}
+<div class="alert alert-info">No policies configured. Default-deny is active.</div>
+{% else %}
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Description</th>
+            <th>Rules</th>
+            <th>Active</th>
+            <th>Created</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for policy in policies %}
+        <tr>
+            <td>{{ policy.name }}</td>
+            <td>{{ policy.description }}</td>
+            <td><code>{{ policy.rules }}</code></td>
+            <td>
+                {% if policy.active %}
+                <span class="badge-approved">Active</span>
+                {% else %}
+                <span class="badge-denied">Inactive</span>
+                {% endif %}
+            </td>
+            <td>{{ policy.created_at[..19] }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endif %}
+
+<script>
+document.getElementById('create-policy-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const name = document.getElementById('policy-name').value;
+    const desc = document.getElementById('policy-desc').value;
+    const rules = document.getElementById('policy-rules').value;
+    const result = document.getElementById('create-result');
+    try {
+        let parsedRules;
+        try { parsedRules = JSON.parse(rules); } catch { throw new Error('Invalid JSON rules'); }
+        const resp = await fetch('/admin/policies', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Admin-Password': localStorage.getItem('deko_admin') || '' },
+            body: JSON.stringify({ name, description: desc, rules: parsedRules }),
+        });
+        const data = await resp.json();
+        if (resp.ok) {
+            result.className = 'alert alert-success';
+            result.textContent = 'Policy created!';
+            setTimeout(() => location.reload(), 1000);
+        } else {
+            result.className = 'alert alert-error';
+            result.textContent = data.error || 'Creation failed';
+        }
+    } catch (err) {
+        result.className = 'alert alert-error';
+        result.textContent = err.message;
+    }
+    result.style.display = 'block';
+});
+</script>
+{% endblock %}

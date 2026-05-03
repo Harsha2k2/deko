@@ -1,5 +1,6 @@
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
+use axum::response::IntoResponse;
 use axum::Json;
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
@@ -8,6 +9,20 @@ use utoipa::{IntoParams, ToSchema};
 use crate::error::{AppError, Result};
 use crate::middleware::auth::hash_api_key;
 use crate::models::{Action, ActionStatus, Agent, AuditLog, Verdict, VerdictDecision, VerdictResponse};
+
+fn sanitize_input(input: &str, max_len: usize) -> String {
+    let truncated = if input.len() > max_len {
+        &input[..max_len]
+    } else {
+        input
+    };
+    truncated
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#x27;")
+        .replace('&', "&amp;")
+}
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct CreateActionRequest {
@@ -74,6 +89,24 @@ pub async fn create_action(
         return Err(AppError::BadRequest("intent is required".into()));
     }
 
+    let sanitized_intent = sanitize_input(&req.intent, 500);
+
+    if let Some(ref screenshot) = req.screenshot_base64 {
+        let size_bytes = screenshot.len();
+        let max_bytes = 10 * 1024 * 1024;
+        if size_bytes > max_bytes {
+            return Err(AppError::BadRequest(
+                format!("Screenshot too large: {} bytes exceeds {} MB limit", size_bytes, 10),
+            ));
+        }
+    }
+
+    if let Some(ref url) = req.target_url {
+        if !url.starts_with("http://") && !url.starts_with("https://") {
+            return Err(AppError::BadRequest("target_url must start with http:// or https://".into()));
+        }
+    }
+
     let id = uuid::Uuid::new_v4().to_string();
 
     let metadata_str = req.metadata.as_ref().map(|m| m.to_string());
@@ -83,7 +116,7 @@ pub async fn create_action(
     )
     .bind(&id)
     .bind(&agent.id)
-    .bind(&req.intent)
+    .bind(&sanitized_intent)
     .bind(&req.payload)
     .bind(&req.screenshot_base64)
     .bind(&metadata_str)
@@ -103,7 +136,7 @@ pub async fn create_action(
     .bind(serde_json::json!({
         "agent_id": agent.id,
         "agent_name": agent.name,
-        "intent": req.intent,
+        "intent": sanitized_intent,
     }))
     .execute(&pool)
     .await
@@ -197,7 +230,9 @@ pub async fn get_action_status(
     State(pool): State<SqlitePool>,
     axum::Extension(agent): axum::Extension<Agent>,
     Path(id): Path<String>,
-) -> Result<Json<serde_json::Value>> {
+) -> Result<axum::response::Response> {
+    use axum::http::HeaderValue;
+
     let action = sqlx::query_as::<_, Action>(
         "SELECT id, agent_id, intent, payload, screenshot_base64, metadata, status, target_url, target_method, created_at, updated_at FROM actions WHERE id = ?",
     )
@@ -219,7 +254,7 @@ pub async fn get_action_status(
     .await
     .map_err(AppError::Database)?;
 
-    let body = if let Some(v) = verdict {
+    let body = if let Some(ref v) = verdict {
         serde_json::json!({
             "action_id": id,
             "status": action.status,
@@ -232,11 +267,20 @@ pub async fn get_action_status(
     } else {
         serde_json::json!({
             "action_id": id,
-            "status": action.status,
+            "status": "pending",
+            "retry_after": 5,
         })
     };
 
-    Ok(Json(body))
+    let mut response = axum::Json(body).into_response();
+    if verdict.is_none() {
+        response.headers_mut().insert(
+            "Retry-After",
+            HeaderValue::from_static("5"),
+        );
+    }
+
+    Ok(response)
 }
 
 #[utoipa::path(

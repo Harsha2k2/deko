@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+
+{% block title %}Deko - Audit Log{% endblock %}
+
+{% block content %}
+<h1>Audit Log</h1>
+
+<div class="alert alert-info">
+    <strong>Filters:</strong>
+    <a href="/admin/audit">All Events</a> |
+    <a href="/admin/audit?event_type=action_created">Created</a> |
+    <a href="/admin/audit?event_type=verdict_issued">Verdicts</a> |
+    <a href="/admin/audit?event_type=admin_override">Overrides</a> |
+    <a href="/admin/audit?event_type=webhook_sent">Webhooks</a> |
+    <a href="/admin/audit?event_type=llm_call">LLM Calls</a>
+</div>
+
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="number">{{ total }}</div>
+        <div class="label">Total Audit Entries</div>
+    </div>
+</div>
+
+{% if entries.is_empty() %}
+<div class="alert alert-info">No audit entries found.</div>
+{% else %}
+<table>
+    <thead>
+        <tr>
+            <th>Event Type</th>
+            <th>Action ID</th>
+            <th>Details</th>
+            <th>Timestamp</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for entry in entries %}
+        <tr>
+            <td><span class="badge-{{ entry.event_type }}">{{ entry.event_type }}</span></td>
+            <td>
+                {% if let Some(aid) = entry.action_id %}
+                <a href="/admin/actions/{{ aid }}"><code>{{ aid[..8] }}</code></a>
+                {% else %}
+                -
+                {% endif %}
+            </td>
+            <td><code>{{ entry.details }}</code></td>
+            <td>{{ entry.created_at }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endif %}
+{% endblock %}
