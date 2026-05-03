@@ -1,0 +1,13 @@
+/target
+.env
+*.sqlite
+*.sqlite3
+.git
+.github
+.idea
+.vscode
+*.swp
+*.swo
+*~
+FEATURES.md
+AGENTS.md

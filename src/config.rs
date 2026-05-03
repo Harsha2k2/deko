@@ -9,15 +9,38 @@ pub struct Config {
     pub env: Environment,
     pub admin_password: String,
     pub database_url: String,
-    pub openai_api_key: String,
+    pub default_provider: LLMProvider,
+    pub default_model: String,
+    pub openai_api_key: Option<String>,
     pub openai_model: String,
+    pub gemini_api_key: Option<String>,
+    pub gemini_model: String,
     pub api_key_secret: String,
     pub allowed_origins: Vec<String>,
     pub rate_limit_per_minute: u64,
     pub max_screenshot_size_mb: usize,
     pub max_request_body_kb: usize,
     pub openai_timeout_secs: u64,
+    pub gemini_timeout_secs: u64,
     pub webhook_url: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LLMProvider {
+    OpenAI,
+    Gemini,
+    Anthropic,
+}
+
+impl std::fmt::Display for LLMProvider {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LLMProvider::OpenAI => write!(f, "openai"),
+            LLMProvider::Gemini => write!(f, "gemini"),
+            LLMProvider::Anthropic => write!(f, "anthropic"),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -58,12 +81,27 @@ impl Config {
         let database_url = std::env::var("DEKO_DATABASE_URL")
             .map_err(|_| anyhow::anyhow!("DEKO_DATABASE_URL is required"))?;
 
-        let openai_api_key = std::env::var("OPENAI_API_KEY")
-            .map_err(|_| anyhow::anyhow!("OPENAI_API_KEY is required"))?;
+        let default_provider = match std::env::var("LLM_DEFAULT_PROVIDER").as_deref() {
+            Ok("openai") => LLMProvider::OpenAI,
+            Ok("gemini") => LLMProvider::Gemini,
+            Ok("anthropic") => LLMProvider::Anthropic,
+            _ => LLMProvider::Gemini,
+        };
+
+        let default_model = std::env::var("LLM_DEFAULT_MODEL")
+            .unwrap_or_else(|_| "gemini-2.0-flash".to_string());
+
+        let openai_api_key = std::env::var("OPENAI_API_KEY").ok();
 
         let openai_model = std::env::var("OPENAI_MODEL")
             .ok()
             .unwrap_or_else(|| "gpt-4o".to_string());
+
+        let gemini_api_key = std::env::var("GEMINI_API_KEY").ok();
+
+        let gemini_model = std::env::var("GEMINI_MODEL")
+            .ok()
+            .unwrap_or_else(|| "gemini-2.0-flash".to_string());
 
         let api_key_secret = std::env::var("DEKO_API_KEY_SECRET")
             .map_err(|_| anyhow::anyhow!("DEKO_API_KEY_SECRET is required"))?;
@@ -93,6 +131,11 @@ impl Config {
             .and_then(|s| s.parse::<u64>().ok())
             .unwrap_or(30);
 
+        let gemini_timeout_secs = std::env::var("GEMINI_TIMEOUT_SECS")
+            .ok()
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(30);
+
         let webhook_url = std::env::var("DEKO_WEBHOOK_URL").ok();
 
         let config = Config {
@@ -100,14 +143,19 @@ impl Config {
             env,
             admin_password,
             database_url,
+            default_provider,
+            default_model,
             openai_api_key,
             openai_model,
+            gemini_api_key,
+            gemini_model,
             api_key_secret,
             allowed_origins,
             rate_limit_per_minute,
             max_screenshot_size_mb,
             max_request_body_kb,
             openai_timeout_secs,
+            gemini_timeout_secs,
             webhook_url,
         };
 
@@ -125,8 +173,20 @@ impl Config {
             bail!("DEKO_API_KEY_SECRET must be at least 16 characters");
         }
 
-        if !self.openai_api_key.starts_with("sk-") {
-            bail!("OPENAI_API_KEY must start with 'sk-'");
+        match self.default_provider {
+            LLMProvider::OpenAI => {
+                if self.openai_api_key.is_none() || !self.openai_api_key.as_ref().unwrap().starts_with("sk-") {
+                    bail!("OPENAI_API_KEY must be set and start with 'sk-' when using OpenAI provider");
+                }
+            }
+            LLMProvider::Gemini => {
+                if self.gemini_api_key.is_none() || self.gemini_api_key.as_ref().unwrap().is_empty() {
+                    bail!("GEMINI_API_KEY must be set when using Gemini provider");
+                }
+            }
+            LLMProvider::Anthropic => {
+                bail!("Anthropic provider not yet implemented");
+            }
         }
 
         Ok(())

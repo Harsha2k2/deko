@@ -1,0 +1,7 @@
+[lints.clippy]
+all = "warn"
+unwrap_used = "warn"
+expect_used = "warn"
+print_stdout = "warn"
+print_stderr = "warn"
+dbg_macro = "warn"

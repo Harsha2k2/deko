@@ -1,9 +1,8 @@
 use serde::{Deserialize, Serialize};
-use sqlx::Type;
 use utoipa::ToSchema;
 
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq, Type)]
-#[sqlx(type_name = "risk_level", rename_all = "snake_case")]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq, sqlx::Type)]
+#[sqlx(rename_all = "snake_case")]
 #[serde(rename_all = "snake_case")]
 pub enum RiskLevel {
     Low,
@@ -23,8 +22,8 @@ impl std::fmt::Display for RiskLevel {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq, Type)]
-#[sqlx(type_name = "verdict_decision", rename_all = "snake_case")]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq, sqlx::Type)]
+#[sqlx(rename_all = "snake_case")]
 #[serde(rename_all = "snake_case")]
 pub enum VerdictDecision {
     Approved,
@@ -42,8 +41,8 @@ impl std::fmt::Display for VerdictDecision {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq, Type)]
-#[sqlx(type_name = "action_status", rename_all = "snake_case")]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq, sqlx::Type)]
+#[sqlx(rename_all = "snake_case")]
 #[serde(rename_all = "snake_case")]
 pub enum ActionStatus {
     Pending,
