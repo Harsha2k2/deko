@@ -1,6 +1,6 @@
 use axum::extract::State;
-use axum::http::StatusCode;
 use axum::Json;
+use serde::Serialize;
 use sqlx::SqlitePool;
 use utoipa::ToSchema;
 
@@ -12,7 +12,7 @@ pub struct HealthResponse {
     pub service: String,
     pub version: String,
     pub database: String,
-    pub openai: String,
+    pub llm: String,
 }
 
 #[utoipa::path(
@@ -29,14 +29,14 @@ pub async fn health(State(pool): State<SqlitePool>) -> Result<Json<HealthRespons
         Err(_) => "unhealthy",
     };
 
-    let openai_status = check_openai().await;
+    let llm_status = check_llm().await;
 
     let response = HealthResponse {
         status: if db_status == "healthy" { "healthy" } else { "degraded" }.to_string(),
         service: "deko".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
         database: db_status.to_string(),
-        openai: openai_status.to_string(),
+        llm: llm_status.to_string(),
     };
 
     if response.status == "healthy" {
@@ -46,6 +46,14 @@ pub async fn health(State(pool): State<SqlitePool>) -> Result<Json<HealthRespons
     }
 }
 
+#[utoipa::path(
+    get,
+    path = "/health/ready",
+    responses(
+        (status = 200, description = "Ready"),
+        (status = 503, description = "Not ready"),
+    )
+)]
 pub async fn readiness(State(pool): State<SqlitePool>) -> Result<Json<serde_json::Value>, AppError> {
     match sqlx::query("SELECT 1").fetch_one(&pool).await {
         Ok(_) => Ok(Json(serde_json::json!({ "status": "ready" }))),
@@ -53,25 +61,58 @@ pub async fn readiness(State(pool): State<SqlitePool>) -> Result<Json<serde_json
     }
 }
 
+#[utoipa::path(
+    get,
+    path = "/health/live",
+    responses(
+        (status = 200, description = "Alive"),
+    )
+)]
 pub async fn liveness() -> Json<serde_json::Value> {
     Json(serde_json::json!({ "status": "alive" }))
 }
 
-async fn check_openai() -> &'static str {
-    let api_key = match std::env::var("OPENAI_API_KEY") {
-        Ok(k) if k.starts_with("sk-") => k,
-        _ => return "not_configured",
-    };
+async fn check_llm() -> &'static str {
+    let gemini_key = std::env::var("GEMINI_API_KEY").ok();
+    let openai_key = std::env::var("OPENAI_API_KEY").ok();
 
-    let client = reqwest::Client::new();
-    match client
-        .get("https://api.openai.com/v1/models")
-        .header("Authorization", format!("Bearer {}", api_key))
-        .timeout(std::time::Duration::from_secs(5))
-        .send()
-        .await
-    {
-        Ok(resp) if resp.status().is_success() => "healthy",
-        _ => "unhealthy",
+    if gemini_key.is_none() && openai_key.is_none() {
+        return "not_configured";
     }
+
+    if let Some(key) = gemini_key {
+        if !key.is_empty() {
+            let client = reqwest::Client::new();
+            match client
+                .get(&format!(
+                    "https://generativelanguage.googleapis.com/v1beta/models?key={}",
+                    key
+                ))
+                .timeout(std::time::Duration::from_secs(5))
+                .send()
+                .await
+            {
+                Ok(resp) if resp.status().is_success() => return "healthy",
+                _ => {}
+            }
+        }
+    }
+
+    if let Some(key) = openai_key {
+        if key.starts_with("sk-") {
+            let client = reqwest::Client::new();
+            match client
+                .get("https://api.openai.com/v1/models")
+                .header("Authorization", format!("Bearer {}", key))
+                .timeout(std::time::Duration::from_secs(5))
+                .send()
+                .await
+            {
+                Ok(resp) if resp.status().is_success() => return "healthy",
+                _ => {}
+            }
+        }
+    }
+
+    "unhealthy"
 }

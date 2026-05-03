@@ -2,10 +2,10 @@ mod actions;
 mod admin;
 mod auth;
 mod health;
+mod policies;
 
 use axum::Router;
 use sqlx::SqlitePool;
-use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 use tracing::info;
 use utoipa::OpenApi;
@@ -25,6 +25,13 @@ use crate::config::Config;
         actions::get_action_status,
         actions::list_actions,
         actions::forward_action,
+        policies::create_policy,
+        policies::list_policies,
+        policies::update_policy,
+        policies::delete_policy,
+        health::health,
+        health::readiness,
+        health::liveness,
     ),
     components(schemas(
         crate::models::ActionStatus,
@@ -33,14 +40,20 @@ use crate::config::Config;
         crate::models::Agent,
         crate::models::CreateAgentRequest,
         crate::models::CreateAgentResponse,
-        auth::RegisterAgentRequest,
-        auth::ListAgentsResponse,
-        auth::AgentSummary,
+        crate::models::Policy,
+        crate::models::CreatePolicyRequest,
+        crate::models::UpdatePolicyRequest,
         actions::CreateActionRequest,
         actions::CreateActionResponse,
         actions::ActionDetailResponse,
         actions::ListActionsResponse,
         crate::models::VerdictResponse,
+        auth::RegisterAgentRequest,
+        auth::ListAgentsResponse,
+        auth::AgentSummary,
+        policies::CreatePolicyRequest,
+        policies::UpdatePolicyRequest,
+        health::HealthResponse,
     )),
     security(("ApiKey" = []))
 )]
@@ -49,7 +62,11 @@ pub struct ApiDoc;
 pub fn create_router(config: &Config, pool: SqlitePool) -> anyhow::Result<Router> {
     info!("Setting up router");
 
-    let cors = CorsLayer::very_permissive();
+    let cors = tower_http::cors::CorsLayer::very_permissive();
+
+    let body_limit = tower_http::limit::RequestBodyLimitLayer::new(
+        config.max_request_body_kb * 1024,
+    );
 
     let auth_state = crate::middleware::auth::AgentState {
         pool: pool.clone(),
@@ -76,6 +93,10 @@ pub fn create_router(config: &Config, pool: SqlitePool) -> anyhow::Result<Router
         .route("/admin/agents", axum::routing::get(auth::list_agents))
         .route("/admin/agents/register", axum::routing::post(auth::register_agent))
         .route("/admin/agents/revoke", axum::routing::post(auth::revoke_agent))
+        .route("/admin/policies", axum::routing::get(policies::list_policies))
+        .route("/admin/policies", axum::routing::post(policies::create_policy))
+        .route("/admin/policies/{id}", axum::routing::put(policies::update_policy))
+        .route("/admin/policies/{id}", axum::routing::delete(policies::delete_policy))
         .layer(axum::middleware::from_fn(admin_auth_middleware));
 
     let app = Router::new()
@@ -87,6 +108,7 @@ pub fn create_router(config: &Config, pool: SqlitePool) -> anyhow::Result<Router
         .merge(SwaggerUi::new("/docs").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .layer(TraceLayer::new_for_http())
         .layer(cors)
+        .layer(body_limit)
         .with_state(pool);
 
     Ok(app)

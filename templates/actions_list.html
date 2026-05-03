@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+
+{% block title %}Deko - Actions{% endblock %}
+
+{% block content %}
+<h1>Actions</h1>
+
+<div class="alert alert-info">
+    Filter:
+    <a href="/admin/actions">All</a> |
+    <a href="/admin/actions?status=pending">Pending</a> |
+    <a href="/admin/actions?status=approved">Approved</a> |
+    <a href="/admin/actions?status=denied">Denied</a> |
+    <a href="/admin/actions?status=escalated">Escalated</a>
+</div>
+
+{% if actions.is_empty() %}
+<div class="alert alert-info">No actions found.</div>
+{% else %}
+<table>
+    <thead>
+        <tr>
+            <th>ID</th>
+            <th>Agent</th>
+            <th>Intent</th>
+            <th>Status</th>
+            <th>Verdict</th>
+            <th>Risk</th>
+            <th>Created</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for action in actions %}
+        <tr>
+            <td><code>{{ action.id[..8] }}</code></td>
+            <td>{{ action.agent_name }}</td>
+            <td>{{ action.intent }}</td>
+            <td><span class="badge-{{ action.status }}">{{ action.status }}</span></td>
+            <td>
+                {% if let Some(decision) = action.verdict_decision %}
+                <span class="badge-{{ decision }}">{{ decision }}</span>
+                {% else %}-{% endif %}
+            </td>
+            <td>{% if let Some(risk) = action.risk_level %}{{ risk }}{% else %}-{% endif %}</td>
+            <td>{{ action.created_at[..19] }}</td>
+            <td>
+                <a href="/admin/actions/{{ action.id }}" class="btn btn-sm btn-primary">View</a>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endif %}
+{% endblock %}

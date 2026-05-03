@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+
+{% block title %}Deko - Dashboard{% endblock %}
+
+{% block content %}
+<h1>Dashboard</h1>
+
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="number">{{ total_actions }}</div>
+        <div class="label">Total Actions</div>
+    </div>
+    <div class="stat-card warning">
+        <div class="number">{{ pending_actions }}</div>
+        <div class="label">Pending</div>
+    </div>
+    <div class="stat-card danger">
+        <div class="number">{{ denied_actions }}</div>
+        <div class="label">Denied</div>
+    </div>
+    <div class="stat-card success">
+        <div class="number">{{ active_agents }}</div>
+        <div class="label">Active Agents</div>
+    </div>
+    <div class="stat-card">
+        <div class="number">{{ active_policies }}</div>
+        <div class="label">Active Policies</div>
+    </div>
+</div>
+
+<h2>Recent Actions</h2>
+{% if recent_actions.is_empty() %}
+<div class="alert alert-info">No actions recorded yet.</div>
+{% else %}
+<table>
+    <thead>
+        <tr>
+            <th>ID</th>
+            <th>Agent</th>
+            <th>Intent</th>
+            <th>Status</th>
+            <th>Verdict</th>
+            <th>Risk</th>
+            <th>Created</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for action in recent_actions %}
+        <tr>
+            <td><code>{{ action.id[..8] }}</code></td>
+            <td>{{ action.agent_name }}</td>
+            <td>{{ action.intent }}</td>
+            <td><span class="badge-{{ action.status }}">{{ action.status }}</span></td>
+            <td>
+                {% if let Some(decision) = action.verdict_decision %}
+                <span class="badge-{{ decision }}">{{ decision }}</span>
+                {% else %}-{% endif %}
+            </td>
+            <td>{% if let Some(risk) = action.risk_level %}{{ risk }}{% else %}-{% endif %}</td>
+            <td>{{ action.created_at[..19] }}</td>
+            <td>
+                <a href="/admin/actions/{{ action.id }}" class="btn btn-sm btn-primary">View</a>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endif %}
+{% endblock %}

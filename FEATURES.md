@@ -97,11 +97,11 @@
 
 ### 10. Policy Pre-Check
 - [x] F068: Create policy rule parser (JSON → typed rules)
-- [x] F069: Implement keyword matching rule
-- [x] F070: Implement action_type matching rule
-- [x] F071: Implement threshold rule (e.g., max_amount)
-- [x] F072: Implement regex matching rule
-- [x] F073: Implement agent_capability rule (what agent can do)
+- [x] F069: Implement keyword matching rule (deny_keyword)
+- [x] F070: Implement action_type matching rule (require_approval)
+- [x] F071: Implement threshold rule (max_amount)
+- [x] F072: Implement regex matching rule (regex_deny)
+- [x] F073: Implement agent_capability rule
 - [x] F074: Policy evaluation returns match/no-match
 - [x] F075: If policy match → set risk_level
 - [x] F076: If no policy match → default-deny
@@ -112,26 +112,26 @@
 - [x] F081: Write policy engine unit tests
 - [x] F082: Write policy engine integration tests
 
-## Phase 6: The Eye (OpenAI Vision)
+## Phase 6: The Eye (Multi-Provider LLM)
 
-### 11. OpenAI Client
-- [x] F083: Create OpenAI client struct with API key
-- [x] F084: Implement chat completions API call
-- [x] F085: Implement vision (image + text) API call
+### 11. LLM Provider Abstraction
+- [x] F083: Create LLMProviderTrait interface
+- [x] F084: Create Gemini provider (GeminiProvider)
+- [x] F085: Create OpenAI provider (OpenAIProvider)
 - [x] F086: Build vision prompt template (system + user)
-- [x] F087: Parse OpenAI response into structured verdict
+- [x] F087: Parse LLM response into structured verdict
 - [x] F088: Add retry logic with exponential backoff (max 2 retries)
-- [x] F089: Add timeout (30s) for OpenAI calls
+- [x] F089: Add timeout (30s) for LLM calls
 - [x] F090: If timeout/unreachable → fail-closed (Denied)
-- [x] F091: Log all OpenAI requests/responses to audit log
-- [x] F092: Write OpenAI client unit tests (mocked)
-- [x] F093: Write OpenAI client integration tests (skipped without API key)
+- [x] F091: Log all LLM requests/responses to audit log
+- [x] F092: Write LLM client unit tests (mocked)
+- [x] F093: Write LLM client integration tests (skipped without API key)
 
 ### 12. Verdict Service
 - [x] F094: Create verdict service struct
 - [x] F095: Verdict service runs policy pre-check first
 - [x] F096: If policy pre-check says deny → immediate verdict
-- [x] F097: If policy pre-check passes → call OpenAI Vision
+- [x] F097: If policy pre-check passes → call LLM Vision
 - [x] F098: Combine policy + LLM verdict into final decision
 - [x] F099: Save verdict to DB
 - [x] F100: Write audit log for verdict
@@ -151,7 +151,7 @@
 - [x] F110: Write processor tests
 
 ### 14. Webhook Notifications
-- [x] F111: Create webhook config in DB/policies
+- [x] F111: Create webhook config in env
 - [x] F112: Trigger webhook on Denied verdict
 - [x] F113: Trigger webhook on Escalated verdict
 - [x] F114: Include action details + verdict in webhook payload
@@ -162,13 +162,13 @@
 ## Phase 8: Admin Dashboard
 
 ### 15. Admin Auth
-- [x] F118: Create admin password hashing (bcrypt)
-- [x] F119: Create admin login endpoint (session/cookie)
+- [x] F118: Create admin password validation
+- [x] F119: Create admin login endpoint
 - [x] F120: Create admin logout endpoint
-- [x] F121: Protect admin routes with session middleware
+- [x] F121: Protect admin routes with password middleware
 - [x] F122: Write admin auth tests
 
-### 16. Dashboard Views (Askama Templates)
+### 16. Dashboard API Endpoints
 - [x] F123: Setup Askama template engine
 - [x] F124: Create base template with layout
 - [x] F125: Create login page template
@@ -200,7 +200,7 @@
 ### 18. Health Checks
 - [x] F146: GET /health endpoint
 - [x] F147: Health check includes DB connectivity
-- [x] F148: Health check includes OpenAI API reachability
+- [x] F148: Health check includes LLM API reachability
 - [x] F149: GET /health/ready endpoint (readiness probe)
 - [x] F150: GET /health/live endpoint (liveness probe)
 - [x] F151: Write health check tests
@@ -210,7 +210,7 @@
 - [x] F153: Log request/response cycle with tracing
 - [x] F154: Add request duration metrics
 - [x] F155: Add action count metrics (by status)
-- [x] F156: Add OpenAI call metrics (latency, errors)
+- [x] F156: Add LLM call metrics (latency, errors)
 - [x] F157: Export metrics as JSON endpoint
 - [x] F158: Write logging tests
 
@@ -248,7 +248,7 @@
 - [x] F177: Create test fixtures/factories
 - [x] F178: Create test helper for app setup
 - [x] F179: Create test helper for auth
-- [x] F180: Create test helper for OpenAI mocking
+- [x] F180: Create test helper for LLM mocking
 - [x] F181: Write CI test runner config (GitHub Actions)
 - [x] F182: Add clippy configuration
 - [x] F183: Add rustfmt configuration
@@ -258,7 +258,7 @@
 - [x] F185: Auth flow test (register → auth → access)
 - [x] F186: Policy enforcement test
 - [x] F187: Fail-closed test (DB down → denied)
-- [x] F188: Fail-closed test (OpenAI down → denied)
+- [x] F188: Fail-closed test (LLM down → denied)
 - [x] F189: Admin override test
 - [x] F190: Webhook delivery test
 
