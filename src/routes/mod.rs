@@ -121,6 +121,7 @@ pub fn create_router(config: &Config, pool: SqlitePool) -> anyhow::Result<Router
         .merge(admin_routes)
         .merge(protected_routes)
         .merge(SwaggerUi::new("/docs").url("/api-docs/openapi.json", ApiDoc::openapi()))
+        .nest_service("/static", tower_http::services::ServeDir::new("static"))
         .layer(TraceLayer::new_for_http())
         .layer(cors)
         .layer(body_limit)
