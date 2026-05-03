@@ -131,6 +131,20 @@ impl VerdictService {
         let start = Instant::now();
         self.metrics.inc_llm_call();
 
+        sqlx::query(
+            "INSERT INTO audit_log (id, action_id, event_type, details) VALUES (?, ?, ?, ?)",
+        )
+        .bind(uuid::Uuid::new_v4().to_string())
+        .bind(&action.id)
+        .bind("llm_call_started")
+        .bind(serde_json::json!({
+            "provider": primary.name(),
+            "model": primary.model_name(),
+        }))
+        .execute(&self.pool)
+        .await
+        .ok();
+
         match primary.analyze_action(
             &action.intent,
             action.payload.as_deref(),

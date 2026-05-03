@@ -1,7 +1,7 @@
 use askama::Template;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use axum::response::Html;
+use axum::response::{Html, IntoResponse};
 use axum::Json;
 use serde::Deserialize;
 use sqlx::SqlitePool;
@@ -150,12 +150,21 @@ pub async fn admin_login_page() -> Html<String> {
 pub async fn admin_login(
     State(pool): State<SqlitePool>,
     Json(req): Json<AdminLoginRequest>,
-) -> Result<Json<serde_json::Value>> {
+) -> Result<axum::response::Response> {
+    use axum::http::header::{SET_COOKIE, HeaderValue};
+
     let config = crate::config::Config::from_env().map_err(|_| AppError::Internal)?;
     if req.password != config.admin_password {
         return Err(AppError::Unauthorized("Invalid password".into()));
     }
-    Ok(Json(serde_json::json!({ "ok": true })))
+
+    let cookie_value = format!("deko_admin={}; Path=/; HttpOnly; SameSite=Strict", req.password);
+    let mut headers = axum::http::HeaderMap::new();
+    headers.insert(SET_COOKIE, HeaderValue::from_str(&cookie_value).map_err(|_| AppError::Internal)?);
+
+    let mut response = axum::Json(serde_json::json!({ "ok": true })).into_response();
+    *response.headers_mut() = headers;
+    Ok(response)
 }
 
 pub async fn dashboard(State(pool): State<SqlitePool>) -> Html<String> {
