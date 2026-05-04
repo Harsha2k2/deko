@@ -25,6 +25,9 @@ pub enum AppError {
     #[error("OpenAI API error: {0}")]
     OpenAI(String),
 
+    #[error("Gemini API error: {0}")]
+    Gemini(String),
+
     #[error("Validation error: {0}")]
     Validation(String),
 
@@ -48,6 +51,7 @@ impl IntoResponse for AppError {
             AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg.clone()),
             AppError::Internal => (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string()),
             AppError::OpenAI(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.clone()),
+            AppError::Gemini(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.clone()),
             AppError::Validation(msg) => (StatusCode::UNPROCESSABLE_ENTITY, msg.clone()),
             AppError::RateLimited => (StatusCode::TOO_MANY_REQUESTS, "Rate limited".to_string()),
             AppError::Locked(msg) => (StatusCode::LOCKED, msg.clone()),

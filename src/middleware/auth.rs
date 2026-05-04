@@ -61,3 +61,7 @@ pub fn hash_api_key(key: &str, secret: &str) -> String {
     hasher.update(format!("{key}:{secret}"));
     hex::encode(hasher.finalize())
 }
+
+pub fn hash_api_key_with_secret(key: &str, secret: &str) -> String {
+    hash_api_key(key, secret)
+}

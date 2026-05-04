@@ -1,6 +1,5 @@
 use axum::extract::State;
 use axum::Json;
-use serde::Serialize;
 use sqlx::SqlitePool;
 use utoipa::ToSchema;
 

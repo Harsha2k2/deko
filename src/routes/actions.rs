@@ -7,8 +7,7 @@ use sqlx::SqlitePool;
 use utoipa::{IntoParams, ToSchema};
 
 use crate::error::{AppError, Result};
-use crate::middleware::auth::hash_api_key;
-use crate::models::{Action, ActionStatus, Agent, AuditLog, Verdict, VerdictDecision, VerdictResponse};
+use crate::models::{Action, ActionStatus, Agent, Verdict, VerdictDecision, VerdictResponse};
 
 fn sanitize_input(input: &str, max_len: usize) -> String {
     let truncated = if input.len() > max_len {

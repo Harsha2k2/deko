@@ -1,6 +1,5 @@
 use askama::Template;
 use axum::extract::{Path, Query, State};
-use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse};
 use axum::Json;
 use serde::Deserialize;
@@ -148,7 +147,7 @@ pub async fn admin_login_page() -> Html<String> {
 }
 
 pub async fn admin_login(
-    State(pool): State<SqlitePool>,
+    State(_pool): State<SqlitePool>,
     Json(req): Json<AdminLoginRequest>,
 ) -> Result<axum::response::Response> {
     use axum::http::header::{SET_COOKIE, HeaderValue};
