@@ -554,9 +554,9 @@
 | F360 | TLS/HTTPS support | [ ] | Let's Encrypt auto |
 | F361 | mTLS for agent communication | [ ] | Certificate-based auth |
 | F362 | Secrets vault integration | [ ] | HashiCorp Vault |
-| F363 | API key access logging | [ ] | Per-key usage statistics |
+| F363 | API key access logging | [x] | Per-key usage statistics |
 | F364 | Suspicious behavior detection | [ ] | Anomaly detection on actions |
-| F365 | IP allowlist for admin | [ ] | Restrict admin access by IP |
+| F365 | IP allowlist for admin | [x] | Restrict admin access by IP |
 | F366 | Audit log export | [ ] | Signed, tamper-proof export |
 | F367 | Compliance reporting | [ ] | SOC2/HIPAA audit reports |
 | F368 | Data retention policies | [ ] | Auto-purge old audit data |

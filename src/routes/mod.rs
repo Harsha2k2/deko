@@ -197,6 +197,11 @@ async fn admin_auth_middleware(
 
     let is_admin = if admin_password.is_empty() {
         false
+    } else if request.headers().get("X-Forwarded-For").and_then(|v| v.to_str().ok()).map_or(false, |ip| {
+        let allowed = std::env::var("DEKO_ADMIN_IP_ALLOWLIST").unwrap_or_default();
+        !allowed.is_empty() && !allowed.split(',').any(|a| ip.trim().starts_with(a.trim()))
+    }) {
+        return (StatusCode::FORBIDDEN, axum::Json(serde_json::json!({"error": "Admin access restricted by IP"}))).into_response();
     } else {
         let valid_passwords: Vec<&str> = admin_password.split(',').map(|s| s.trim()).collect();
         valid_passwords.iter().any(|p| *p == auth_header || *p == cookie_password)

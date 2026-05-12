@@ -59,6 +59,20 @@ pub async fn auth_middleware(
         }
     };
 
+    sqlx::query(
+        "INSERT INTO audit_log (id, action_id, event_type, details) VALUES (?, ?, ?, ?)",
+    )
+    .bind(uuid::Uuid::new_v4().to_string())
+    .bind(&agent.id)
+    .bind("api_key_used")
+    .bind(serde_json::json!({
+        "agent_name": agent.name,
+        "path": request.uri().path(),
+    }))
+    .execute(&state.pool)
+    .await
+    .ok();
+
     let mut request = request;
     request.extensions_mut().insert(agent);
 
