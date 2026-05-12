@@ -68,12 +68,24 @@ pub enum AppError {
     Locked(String),
 }
 
+fn is_production() -> bool {
+    std::env::var("DEKO_ENV").as_deref() == Ok("prod")
+}
+
+fn sanitize_for_prod(msg: &str) -> String {
+    if is_production() {
+        "An internal error occurred".to_string()
+    } else {
+        msg.to_string()
+    }
+}
+
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let (status, message) = match &self {
             AppError::Database(e) => {
                 error!("Database error: {:?}", e);
-                (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
+                (StatusCode::INTERNAL_SERVER_ERROR, sanitize_for_prod("Database error occurred"))
             }
             AppError::NotFound(msg) => (StatusCode::NOT_FOUND, msg.clone()),
             AppError::Unauthorized(msg) => (StatusCode::UNAUTHORIZED, msg.clone()),
@@ -81,15 +93,15 @@ impl IntoResponse for AppError {
             AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg.clone()),
             AppError::Internal => {
                 log_first_backtrace();
-                (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
+                (StatusCode::INTERNAL_SERVER_ERROR, sanitize_for_prod("Internal server error"))
             }
             AppError::OpenAI(msg) => {
                 log_first_backtrace();
-                (StatusCode::INTERNAL_SERVER_ERROR, msg.clone())
+                (StatusCode::INTERNAL_SERVER_ERROR, sanitize_for_prod(msg))
             }
             AppError::Gemini(msg) => {
                 log_first_backtrace();
-                (StatusCode::INTERNAL_SERVER_ERROR, msg.clone())
+                (StatusCode::INTERNAL_SERVER_ERROR, sanitize_for_prod(msg))
             }
             AppError::Validation(msg) => (StatusCode::UNPROCESSABLE_ENTITY, msg.clone()),
             AppError::RateLimited => (StatusCode::TOO_MANY_REQUESTS, "Rate limited".to_string()),

@@ -88,7 +88,7 @@
 | F046 | Error detail in responses | [x] | {"error": "message"} format |
 | F047 | Stack trace on internal errors | [x] | Color-eyre or backtrace integration |
 | F048 | Error rate metrics | [x] | Count errors by type for alerting |
-| F049 | User-friendly error messages | [ ] | Avoid leaking internal details in prod |
+| F049 | User-friendly error messages | [x] | Avoid leaking internal details in prod |
 
 ---
 
