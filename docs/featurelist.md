@@ -473,7 +473,7 @@
 |----|---------|--------|-------|
 | F312 | GitHub Actions CI | [x] | Test, lint, build, smoke |
 | F313 | Automated releases | [x] | Release please or similar |
-| F314 | Container registry publish | [ ] | Push to GHCR or Docker Hub |
+| F314 | Container registry publish | [x] | Push to GHCR or Docker Hub |
 | F315 | Staging deployment | [ ] | Auto-deploy to staging |
 | F316 | Integration test environment | [ ] | Ephemeral test env |
 | F317 | Blue-green deployment | [ ] | Zero-downtime updates |
@@ -483,7 +483,7 @@
 | ID | Feature | Status | Notes |
 |----|---------|--------|-------|
 | F319 | Prometheus metrics endpoint | [ ] | Standard format |
-| F320 | Grafana dashboard | [ ] | Pre-built dashboards |
+| F320 | Grafana dashboard | [x] | Pre-built dashboards |
 | F321 | log aggregation setup | [ ] | Loki / ELK / Datadog config |
 | F322 | Uptime monitoring | [ ] | External health check pings |
 | F323 | SLA/SLO tracking | [ ] | Measure uptime, latency |
@@ -520,7 +520,7 @@
 | ID | Feature | Status | Notes |
 |----|---------|--------|-------|
 | F340 | Integration test suite | [x] | 13 tests, expanding |
-| F341 | Load / stress testing | [ ] | k6 or locust scripts |
+| F341 | Load / stress testing | [x] | k6 or locust scripts |
 | F342 | Security penetration testing | [ ] | SQLi, XSS, auth bypass |
 | F343 | Property-based testing | [ ] | proptest for input validation |
 | F344 | Fuzz testing | [ ] | cargo-fuzz for JSON parsing |

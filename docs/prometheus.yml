@@ -1,0 +1,5 @@
+scrape_configs:
+  - job_name: 'deko'
+    static_configs:
+      - targets: ['localhost:8000']
+    metrics_path: '/metrics'

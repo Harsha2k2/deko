@@ -1,0 +1,41 @@
+{
+  "dashboard": {
+    "title": "Deko - Action Watchdog",
+    "tags": ["deko", "ai", "security"],
+    "timezone": "browser",
+    "panels": [
+      {
+        "title": "Actions per Minute",
+        "type": "graph",
+        "targets": [{"expr": "rate(deko_actions_total[1m])", "legendFormat": "Total"}]
+      },
+      {
+        "title": "Denial Rate",
+        "type": "graph",
+        "targets": [{"expr": "rate(deko_actions_denied[1m]) / rate(deko_actions_total[1m])", "legendFormat": "Denial Rate"}]
+      },
+      {
+        "title": "LLM Latency p50/p95",
+        "type": "graph",
+        "targets": [
+          {"expr": "deko_llm_latency_p50", "legendFormat": "p50"},
+          {"expr": "deko_llm_latency_p95", "legendFormat": "p95"}
+        ]
+      },
+      {
+        "title": "Active Agents",
+        "type": "stat",
+        "targets": [{"expr": "deko_agents_active"}]
+      },
+      {
+        "title": "Error Rate by Type",
+        "type": "pie",
+        "targets": [
+          {"expr": "deko_errors_database", "legendFormat": "Database"},
+          {"expr": "deko_errors_llm", "legendFormat": "LLM"},
+          {"expr": "deko_errors_auth", "legendFormat": "Auth"}
+        ]
+      }
+    ]
+  }
+}
