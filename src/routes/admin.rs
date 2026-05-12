@@ -357,10 +357,15 @@ pub struct OverrideRequest {
 pub async fn override_action(
     State(pool): State<crate::db::DbPool>,
     Path(id): Path<String>,
+    headers: axum::http::HeaderMap,
     axum::Form(req): axum::Form<OverrideRequest>,
 ) -> Result<axum::response::Redirect> {
     if req.reason.trim().is_empty() {
         return Err(AppError::BadRequest("reason is required".into()));
+    }
+
+    if headers.get("X-Admin-Confirm").and_then(|v| v.to_str().ok()) != Some("yes") {
+        return Err(AppError::BadRequest("Confirmation required: set X-Admin-Confirm: yes header".into()));
     }
 
     let action = sqlx::query_as::<_, Action>(

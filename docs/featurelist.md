@@ -125,7 +125,7 @@
 | F071 | Multi-admin support | [x] | Multiple admin accounts with roles |
 | F072 | SSO/OAuth2 for admin | [ ] | Google, GitHub, Okta integration |
 | F073 | Session timeout / expiry | [x] | Configurable TTL on admin sessions |
-| F074 | Admin action confirmation | [ ] | Require re-auth for destructive admin actions |
+| F074 | Admin action confirmation | [x] | Require re-auth for destructive admin actions |
 | F075 | Rate limiting on login attempts | [x] | Prevent brute force on admin password |
 
 ---
@@ -178,7 +178,7 @@
 | F108 | Custom forwarding headers | [x] | Add X-Deko headers to forwarded requests |
 | F109 | Response transformation | [ ] | Modify response before returning to agent |
 | F110 | Forward retry on failure | [x] | Retry forwarding if target is unavailable |
-| F111 | Forward timeout | [ ] | Configurable timeout for forwarded requests |
+| F111 | Forward timeout | [x] | Configurable timeout for forwarded requests |
 | F112 | Idempotent forwarding | [ ] | Prevent double execution with idempotency key |
 
 ---
