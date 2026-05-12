@@ -288,6 +288,26 @@ impl VerdictService {
                             }
                         }
                     }
+                    if rule.get("type").and_then(|t| t.as_str()) == Some("concurrency_limit") {
+                        let max_simultaneous = rule.get("max_simultaneous").and_then(|v| v.as_i64()).unwrap_or(1);
+                        if let Ok((count,)) = sqlx::query_as::<_, (i64,)>(
+                            "SELECT COUNT(*) FROM actions WHERE agent_id = ? AND status = 'processing'"
+                        )
+                            .bind(&action.agent_id)
+                            .fetch_one(&self.pool)
+                            .await
+                        {
+                            if count >= max_simultaneous && !is_dry_run {
+                                return Ok(PolicyEvaluation {
+                                    immediate_deny: true,
+                                    reason: Some(format!("Concurrency limit: {} simultaneous actions (max {})", count, max_simultaneous)),
+                                    risk_level: Some(crate::models::RiskLevel::Medium),
+                                    matched_policy_id: Some(policy.id.clone()),
+                                    context: context_parts.join("; "),
+                                });
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -502,6 +522,28 @@ impl VerdictService {
                         }
                     }
                 }
+            }
+            "payload_schema" => {
+                let schema = rule.get("json_schema")?;
+                if let Some(ref payload_str) = action.payload {
+                    if let Ok(payload_val) = serde_json::from_str::<serde_json::Value>(payload_str) {
+                        if let Some(required) = schema.get("required").and_then(|r| r.as_array()) {
+                            for field in required {
+                                let field_name = field.as_str()?;
+                                if !payload_val.get(field_name).map_or(false, |v| !v.is_null()) {
+                                    return Some(RuleResult {
+                                        immediate_deny: true,
+                                        message: format!("Payload missing required field: {}", field_name),
+                                        risk_level: crate::models::RiskLevel::Medium,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            "concurrency_limit" => {
+                // Checked in evaluate_policies
             }
             _ => {}
         }
