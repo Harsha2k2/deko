@@ -10,15 +10,17 @@ pub struct ActionProcessor {
     pub pool: DbPool,
     pub verdict_service: VerdictService,
     pub interval_secs: u64,
+    pub action_ttl_secs: u64,
     pub shutdown: Arc<AtomicBool>,
 }
 
 impl ActionProcessor {
-    pub fn new(pool: DbPool, verdict_service: VerdictService, interval_secs: u64) -> Self {
+    pub fn new(pool: DbPool, verdict_service: VerdictService, interval_secs: u64, action_ttl_secs: u64) -> Self {
         Self {
             pool,
             verdict_service,
             interval_secs,
+            action_ttl_secs,
             shutdown: Arc::new(AtomicBool::new(false)),
         }
     }
@@ -34,8 +36,28 @@ impl ActionProcessor {
                 break;
             }
 
+            self.expire_stale_actions().await;
+
             if let Err(e) = self.process_pending().await {
                 error!("Error processing pending actions: {}", e);
+            }
+        }
+    }
+
+    async fn expire_stale_actions(&self) {
+        let cutoff = chrono::Utc::now() - chrono::Duration::seconds(self.action_ttl_secs as i64);
+        let result = sqlx::query(
+            "UPDATE actions SET status = 'denied', updated_at = CURRENT_TIMESTAMP \
+             WHERE status = 'pending' AND created_at < ?",
+        )
+        .bind(cutoff.to_rfc3339())
+        .execute(&self.pool)
+        .await;
+
+        if let Ok(r) = result {
+            let expired = r.rows_affected();
+            if expired > 0 {
+                info!("Expired {} stale pending actions (TTL: {}s)", expired, self.action_ttl_secs);
             }
         }
     }

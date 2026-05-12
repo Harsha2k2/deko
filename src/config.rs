@@ -41,6 +41,7 @@ pub struct Config {
     pub openai_timeout_secs: u64,
     pub gemini_timeout_secs: u64,
     pub processor_poll_interval_secs: u64,
+    pub action_ttl_secs: u64,
     pub webhook_url: Option<String>,
 }
 
@@ -94,6 +95,7 @@ pub struct EnvProfile {
     pub openai_timeout_secs: u64,
     pub gemini_timeout_secs: u64,
     pub processor_poll_interval_secs: u64,
+    pub action_ttl_secs: u64,
 }
 
 impl Environment {
@@ -110,6 +112,7 @@ impl Environment {
                 openai_timeout_secs: 60,
                 gemini_timeout_secs: 60,
                 processor_poll_interval_secs: 1,
+                action_ttl_secs: 3600,
             },
             Environment::Staging => EnvProfile {
                 default_model: "gemini-2.0-flash".to_string(),
@@ -125,6 +128,7 @@ impl Environment {
                 openai_timeout_secs: 30,
                 gemini_timeout_secs: 30,
                 processor_poll_interval_secs: 2,
+                action_ttl_secs: 1800,
             },
             Environment::Prod => EnvProfile {
                 default_model: "gemini-2.0-flash".to_string(),
@@ -137,6 +141,7 @@ impl Environment {
                 openai_timeout_secs: 15,
                 gemini_timeout_secs: 15,
                 processor_poll_interval_secs: 2,
+                action_ttl_secs: 1800,
             },
         }
     }
@@ -225,6 +230,11 @@ impl Config {
             .and_then(|s| s.parse::<u64>().ok())
             .unwrap_or(profile.processor_poll_interval_secs);
 
+        let action_ttl_secs = std::env::var("DEKO_ACTION_TTL_SECS")
+            .ok()
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(profile.action_ttl_secs);
+
         let webhook_url = std::env::var("DEKO_WEBHOOK_URL").ok();
 
         let config = Config {
@@ -247,6 +257,7 @@ impl Config {
             openai_timeout_secs,
             gemini_timeout_secs,
             processor_poll_interval_secs,
+            action_ttl_secs,
             webhook_url,
         };
 

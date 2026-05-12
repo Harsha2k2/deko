@@ -152,7 +152,7 @@
 | F090 | Action deduplication | [ ] | idempotency_key prevents duplicates |
 | F091 | Scheduled/delayed actions | [ ] | `execute_at` field for future execution |
 | F092 | Action priority queuing | [ ] | Priority levels for processing order |
-| F093 | Action TTL / expiration | [ ] | Auto-deny pending actions older than X time |
+| F093 | Action TTL / expiration | [x] | Auto-deny pending actions older than X time |
 | F094 | Attachments support | [ ] | File uploads alongside actions |
 
 ### 4.2 Action Polling
@@ -163,7 +163,7 @@
 | F097 | Pending status response | [x] | {"status": "pending"} |
 | F098 | Retry-After header | [x] | 5 seconds for pending |
 | F099 | Long-poll / WebSocket | [ ] | Server push when verdict ready |
-| F100 | Status endpoint optimization | [ ] | Cache verdicts in memory for fast reads |
+| F100 | Status endpoint optimization | [x] | Cache verdicts in memory for fast reads |
 
 ### 4.3 Action Forwarding
 | ID | Feature | Status | Notes |
