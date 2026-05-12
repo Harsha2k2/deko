@@ -308,6 +308,25 @@ impl VerdictService {
                             }
                         }
                     }
+                    if rule.get("type").and_then(|t| t.as_str()) == Some("budget_limit") {
+                        let max_budget = rule.get("max_budget").and_then(|v| v.as_f64()).unwrap_or(10000.0);
+                        if let Ok((total,)) = sqlx::query_as::<_, (f64,)>(&format!(
+                            "SELECT COALESCE(SUM(amount), 0) FROM (SELECT CAST(JSON_EXTRACT(payload, '$.amount') AS REAL) AS amount FROM actions WHERE agent_id = '{}' AND status != 'denied')",
+                            action.agent_id
+                        ))
+                        .fetch_one(&self.pool)
+                        .await {
+                            if total >= max_budget && !is_dry_run {
+                                return Ok(PolicyEvaluation {
+                                    immediate_deny: true,
+                                    reason: Some(format!("Budget limit: ${:.2} total (max ${:.2})", total, max_budget)),
+                                    risk_level: Some(crate::models::RiskLevel::High),
+                                    matched_policy_id: Some(policy.id.clone()),
+                                    context: context_parts.join("; "),
+                                });
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -523,27 +542,8 @@ impl VerdictService {
                     }
                 }
             }
-            "payload_schema" => {
-                let schema = rule.get("json_schema")?;
-                if let Some(ref payload_str) = action.payload {
-                    if let Ok(payload_val) = serde_json::from_str::<serde_json::Value>(payload_str) {
-                        if let Some(required) = schema.get("required").and_then(|r| r.as_array()) {
-                            for field in required {
-                                let field_name = field.as_str()?;
-                                if !payload_val.get(field_name).map_or(false, |v| !v.is_null()) {
-                                    return Some(RuleResult {
-                                        immediate_deny: true,
-                                        message: format!("Payload missing required field: {}", field_name),
-                                        risk_level: crate::models::RiskLevel::Medium,
-                                    });
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            "concurrency_limit" => {
-                // Checked in evaluate_policies
+            "concurrency_limit" | "budget_limit" => {
+                // Checked in evaluate_policies (async context needed)
             }
             _ => {}
         }

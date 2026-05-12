@@ -222,7 +222,7 @@
 | F140 | Payload schema validation | [x] | Validate payload matches expected JSON schema |
 | F141 | Geofencing rule | [ ] | Block actions based on geographic origin |
 | F142 | Concurrency limit rule | [x] | Max simultaneous actions per agent |
-| F143 | Budget/cost tracking rule | [ ] | Track cumulative spend and enforce limits |
+| F143 | Budget/cost tracking rule | [x] | Track cumulative spend and enforce limits |
 
 ---
 
