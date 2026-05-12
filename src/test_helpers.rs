@@ -257,6 +257,7 @@ impl TestApp {
         std::env::set_var("GEMINI_MODEL", "gemini-2.0-flash");
         std::env::set_var("OPENAI_API_KEY", "sk-test");
         std::env::set_var("OPENAI_MODEL", "gpt-4o");
+        std::env::set_var("DEKO_PROCESSOR_POLL_INTERVAL_SECS", "1");
 
         let config = crate::config::Config::from_env().unwrap();
         let pool = crate::db::init_db(&config).await.unwrap();

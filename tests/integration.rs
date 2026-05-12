@@ -18,6 +18,7 @@ fn test_config() -> Config {
     std::env::set_var("GEMINI_MODEL", "gemini-2.0-flash");
     std::env::set_var("OPENAI_API_KEY", "sk-test");
     std::env::set_var("OPENAI_MODEL", "gpt-4o");
+    std::env::set_var("DEKO_PROCESSOR_POLL_INTERVAL_SECS", "1");
     Config::from_env().unwrap()
 }
 

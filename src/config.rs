@@ -22,6 +22,7 @@ pub struct Config {
     pub max_request_body_kb: usize,
     pub openai_timeout_secs: u64,
     pub gemini_timeout_secs: u64,
+    pub processor_poll_interval_secs: u64,
     pub webhook_url: Option<String>,
 }
 
@@ -70,6 +71,7 @@ pub struct EnvProfile {
     pub max_request_body_kb: usize,
     pub openai_timeout_secs: u64,
     pub gemini_timeout_secs: u64,
+    pub processor_poll_interval_secs: u64,
 }
 
 impl Environment {
@@ -85,6 +87,7 @@ impl Environment {
                 max_request_body_kb: 1024,
                 openai_timeout_secs: 60,
                 gemini_timeout_secs: 60,
+                processor_poll_interval_secs: 1,
             },
             Environment::Staging => EnvProfile {
                 default_model: "gemini-2.0-flash".to_string(),
@@ -99,6 +102,7 @@ impl Environment {
                 max_request_body_kb: 512,
                 openai_timeout_secs: 30,
                 gemini_timeout_secs: 30,
+                processor_poll_interval_secs: 2,
             },
             Environment::Prod => EnvProfile {
                 default_model: "gemini-2.0-flash".to_string(),
@@ -110,6 +114,7 @@ impl Environment {
                 max_request_body_kb: 256,
                 openai_timeout_secs: 15,
                 gemini_timeout_secs: 15,
+                processor_poll_interval_secs: 2,
             },
         }
     }
@@ -193,6 +198,11 @@ impl Config {
             .and_then(|s| s.parse::<u64>().ok())
             .unwrap_or(profile.gemini_timeout_secs);
 
+        let processor_poll_interval_secs = std::env::var("DEKO_PROCESSOR_POLL_INTERVAL_SECS")
+            .ok()
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(profile.processor_poll_interval_secs);
+
         let webhook_url = std::env::var("DEKO_WEBHOOK_URL").ok();
 
         let config = Config {
@@ -213,6 +223,7 @@ impl Config {
             max_request_body_kb,
             openai_timeout_secs,
             gemini_timeout_secs,
+            processor_poll_interval_secs,
             webhook_url,
         };
 

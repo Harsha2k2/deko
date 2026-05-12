@@ -29,7 +29,7 @@ async fn main() -> anyhow::Result<()> {
 
     let metrics = Arc::new(MetricsCollector::new());
     let verdict_service = VerdictService::new(pool.clone(), &config, metrics.clone());
-    let processor = ActionProcessor::new(pool.clone(), verdict_service, 2);
+    let processor = ActionProcessor::new(pool.clone(), verdict_service, config.processor_poll_interval_secs);
     let shutdown = processor.shutdown.clone();
 
     let processor_handle = tokio::spawn(async move {

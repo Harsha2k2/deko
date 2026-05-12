@@ -366,6 +366,7 @@ fn test_env_profile_dev() {
     assert_eq!(profile.max_request_body_kb, 1024);
     assert_eq!(profile.openai_timeout_secs, 60);
     assert_eq!(profile.gemini_timeout_secs, 60);
+    assert_eq!(profile.processor_poll_interval_secs, 1);
     assert!(profile.allowed_origins.contains(&"*".to_string()));
 }
 
@@ -377,6 +378,7 @@ fn test_env_profile_staging() {
     assert_eq!(profile.max_request_body_kb, 512);
     assert_eq!(profile.openai_timeout_secs, 30);
     assert_eq!(profile.gemini_timeout_secs, 30);
+    assert_eq!(profile.processor_poll_interval_secs, 2);
     assert!(!profile.allowed_origins.contains(&"*".to_string()));
 }
 
@@ -388,6 +390,7 @@ fn test_env_profile_prod() {
     assert_eq!(profile.max_request_body_kb, 256);
     assert_eq!(profile.openai_timeout_secs, 15);
     assert_eq!(profile.gemini_timeout_secs, 15);
+    assert_eq!(profile.processor_poll_interval_secs, 2);
     assert!(profile.allowed_origins.is_empty());
 }
 
