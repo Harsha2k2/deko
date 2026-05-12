@@ -485,9 +485,9 @@
 | F319 | Prometheus metrics endpoint | [x] | Standard format |
 | F320 | Grafana dashboard | [x] | Pre-built dashboards |
 | F321 | log aggregation setup | [ ] | Loki / ELK / Datadog config |
-| F322 | Uptime monitoring | [ ] | External health check pings |
+| F322 | Uptime monitoring | [x] | External health check pings |
 | F323 | SLA/SLO tracking | [ ] | Measure uptime, latency |
-| F324 | Incident response docs | [ ] | Runbooks for common issues |
+| F324 | Incident response docs | [x] | Runbooks for common issues |
 
 ---
 
