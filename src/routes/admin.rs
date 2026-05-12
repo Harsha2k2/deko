@@ -8,6 +8,8 @@ use sqlx::SqlitePool;
 use crate::error::{AppError, Result};
 use crate::models::{Action, ActionStatus, AuditLog, Verdict};
 
+type ActionRowResult = (String, String, String, String, Option<String>, Option<String>, Option<String>, String);
+
 #[derive(Template)]
 #[template(path = "login.html")]
 struct LoginTemplate {
@@ -47,6 +49,7 @@ struct AdminActionRow {
     intent: String,
     status: String,
     verdict_decision: Option<String>,
+    #[allow(dead_code)]
     verdict_reason: Option<String>,
     risk_level: Option<String>,
     created_at: String,
@@ -182,7 +185,7 @@ pub async fn dashboard(State(pool): State<SqlitePool>) -> Html<String> {
     let total_policies: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM policies WHERE active = 1")
         .fetch_one(&pool).await.map_err(AppError::Database).unwrap_or((0,));
 
-    let rows: Vec<(String, String, String, String, Option<String>, Option<String>, Option<String>, String)> = sqlx::query_as(
+    let rows: Vec<ActionRowResult> = sqlx::query_as(
         "SELECT a.id, ag.name, a.intent, a.status, v.decision, v.reason, v.risk_level, a.created_at FROM actions a JOIN agents ag ON a.agent_id = ag.id LEFT JOIN verdicts v ON a.id = v.action_id ORDER BY a.created_at DESC LIMIT 20",
     )
     .fetch_all(&pool).await.unwrap_or_default();
@@ -229,7 +232,7 @@ pub async fn list_admin_actions(
 
     query.push_str(" ORDER BY a.created_at DESC LIMIT 100");
 
-    let rows: Vec<(String, String, String, String, Option<String>, Option<String>, Option<String>, String)> = sqlx::query_as(&query)
+    let rows: Vec<ActionRowResult> = sqlx::query_as(&query)
         .fetch_all(&pool).await.unwrap_or_default();
 
     let actions = rows.into_iter().map(|r| AdminActionRow {
@@ -383,6 +386,7 @@ struct AuditLogTemplate {
 
 #[derive(Debug, Clone)]
 struct AuditLogRow {
+    #[allow(dead_code)]
     id: String,
     action_id: Option<String>,
     event_type: String,

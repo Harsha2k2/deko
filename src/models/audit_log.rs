@@ -11,6 +11,7 @@ pub struct AuditLog {
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct AuditLogEntry {
     pub action_id: Option<String>,

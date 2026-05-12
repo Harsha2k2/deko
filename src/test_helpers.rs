@@ -120,7 +120,7 @@ impl TestFixtures {
     pub async fn create_agent(pool: &sqlx::SqlitePool, name: &str) -> sqlx::Result<(String, String)> {
         let agent_id = uuid::Uuid::new_v4().to_string();
         let api_key = uuid::Uuid::new_v4().to_string();
-        let api_key_hash = crate::middleware::auth::hash_api_key_with_secret(
+        let api_key_hash = crate::middleware::auth::hash_api_key(
             &api_key,
             &std::env::var("DEKO_API_KEY_SECRET").unwrap_or_else(|_| "test-secret-key-12345678".to_string()),
         );

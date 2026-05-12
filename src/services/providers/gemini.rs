@@ -10,7 +10,6 @@ pub struct GeminiProvider {
     client: reqwest::Client,
     api_key: String,
     model: String,
-    timeout_secs: u64,
 }
 
 #[derive(serde::Serialize)]
@@ -55,7 +54,6 @@ impl GeminiProvider {
             client,
             api_key,
             model,
-            timeout_secs,
         }
     }
 

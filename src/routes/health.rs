@@ -83,7 +83,7 @@ async fn check_llm() -> &'static str {
         if !key.is_empty() {
             let client = reqwest::Client::new();
             match client
-                .get(&format!(
+                .get(format!(
                     "https://generativelanguage.googleapis.com/v1beta/models?key={}",
                     key
                 ))

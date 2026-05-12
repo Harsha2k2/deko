@@ -19,6 +19,7 @@ pub struct Action {
     pub updated_at: chrono::DateTime<chrono::Utc>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct CreateActionRequest {
     pub intent: String,
@@ -29,6 +30,7 @@ pub struct CreateActionRequest {
     pub target_method: Option<String>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ActionResponse {
     pub id: String,

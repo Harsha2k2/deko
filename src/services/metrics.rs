@@ -26,6 +26,12 @@ pub struct MetricsCollector {
     pub request_count: Arc<AtomicU64>,
 }
 
+impl Default for MetricsCollector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MetricsCollector {
     pub fn new() -> Self {
         Self {
@@ -74,10 +80,12 @@ impl MetricsCollector {
         self.llm_latency_ms.store(new_avg, Ordering::Relaxed);
     }
 
+    #[allow(dead_code)]
     pub fn inc_webhook_sent(&self) {
         self.webhook_sent.fetch_add(1, Ordering::Relaxed);
     }
 
+    #[allow(dead_code)]
     pub fn inc_webhook_failed(&self) {
         self.webhook_failed.fetch_add(1, Ordering::Relaxed);
     }
@@ -137,6 +145,7 @@ impl RateLimiter {
         }
     }
 
+    #[allow(dead_code)]
     pub fn start_cleanup_task(&self) {
         let state_clone = self.state.clone();
         let window = Duration::from_secs(self.window_secs);
@@ -208,6 +217,7 @@ pub async fn request_metrics_middleware(
     response
 }
 
+#[allow(dead_code)]
 #[derive(Serialize)]
 pub struct MetricsResponse {
     pub actions: ActionMetrics,
@@ -216,6 +226,7 @@ pub struct MetricsResponse {
     pub http: HTTPMetrics,
 }
 
+#[allow(dead_code)]
 #[derive(Serialize)]
 pub struct ActionMetrics {
     pub total: u64,
@@ -224,6 +235,7 @@ pub struct ActionMetrics {
     pub escalated: u64,
 }
 
+#[allow(dead_code)]
 #[derive(Serialize)]
 pub struct LLMMetrics {
     pub calls_total: u64,
@@ -231,12 +243,14 @@ pub struct LLMMetrics {
     pub avg_latency_ms: u64,
 }
 
+#[allow(dead_code)]
 #[derive(Serialize)]
 pub struct WebhookMetrics {
     pub sent: u64,
     pub failed: u64,
 }
 
+#[allow(dead_code)]
 #[derive(Serialize)]
 pub struct HTTPMetrics {
     pub request_count: u64,

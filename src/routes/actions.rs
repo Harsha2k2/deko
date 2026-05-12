@@ -124,7 +124,7 @@ pub async fn create_action(
     .bind(ActionStatus::Pending)
     .execute(&pool)
     .await
-    .map_err(|e| AppError::Database(e))?;
+    .map_err(AppError::Database)?;
 
     sqlx::query(
         "INSERT INTO audit_log (id, action_id, event_type, details) VALUES (?, ?, ?, ?)",
@@ -139,7 +139,7 @@ pub async fn create_action(
     }))
     .execute(&pool)
     .await
-    .map_err(|e| AppError::Database(e))?;
+    .map_err(AppError::Database)?;
 
     Ok((
         StatusCode::CREATED,

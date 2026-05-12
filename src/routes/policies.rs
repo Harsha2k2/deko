@@ -71,6 +71,7 @@ pub async fn create_policy(
     responses((status = 200, description = "List policies")),
     security(("AdminPassword" = []))
 )]
+#[allow(dead_code)]
 pub async fn list_policies(
     State(pool): State<SqlitePool>,
     axum::Extension(_admin): axum::Extension<bool>,

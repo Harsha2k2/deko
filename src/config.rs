@@ -10,6 +10,7 @@ pub struct Config {
     pub admin_password: String,
     pub database_url: String,
     pub default_provider: LLMProvider,
+    #[allow(dead_code)]
     pub default_model: String,
     pub openai_api_key: Option<String>,
     pub openai_model: String,
@@ -18,6 +19,7 @@ pub struct Config {
     pub api_key_secret: String,
     pub allowed_origins: Vec<String>,
     pub rate_limit_per_minute: u64,
+    #[allow(dead_code)]
     pub max_screenshot_size_mb: usize,
     pub max_request_body_kb: usize,
     pub openai_timeout_secs: u64,
@@ -151,19 +153,17 @@ impl Config {
         };
 
         let default_model = std::env::var("LLM_DEFAULT_MODEL")
-            .unwrap_or_else(|_| profile.default_model);
+            .unwrap_or(profile.default_model);
 
         let openai_api_key = std::env::var("OPENAI_API_KEY").ok();
 
         let openai_model = std::env::var("OPENAI_MODEL")
-            .ok()
-            .unwrap_or_else(|| profile.openai_model);
+            .unwrap_or(profile.openai_model);
 
         let gemini_api_key = std::env::var("GEMINI_API_KEY").ok();
 
         let gemini_model = std::env::var("GEMINI_MODEL")
-            .ok()
-            .unwrap_or_else(|| profile.gemini_model);
+            .unwrap_or(profile.gemini_model);
 
         let api_key_secret = std::env::var("DEKO_API_KEY_SECRET")
             .map_err(|_| anyhow::anyhow!("DEKO_API_KEY_SECRET is required"))?;
@@ -272,6 +272,7 @@ impl Config {
         SocketAddr::from(([0, 0, 0, 0], self.port))
     }
 
+    #[allow(dead_code)]
     pub fn is_prod(&self) -> bool {
         self.env == Environment::Prod
     }

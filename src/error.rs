@@ -26,11 +26,14 @@ pub enum AppError {
     OpenAI(String),
 
     #[error("Gemini API error: {0}")]
+    #[allow(dead_code)]
     Gemini(String),
 
+    #[allow(dead_code)]
     #[error("Validation error: {0}")]
     Validation(String),
 
+    #[allow(dead_code)]
     #[error("Rate limited")]
     RateLimited,
 

@@ -133,6 +133,7 @@ pub struct AgentSummary {
         (status = 200, description = "List agents", body = ListAgentsResponse),
     )
 )]
+#[allow(dead_code)]
 pub async fn list_agents(
     State(pool): State<SqlitePool>,
     axum::Extension(admin): axum::Extension<bool>,

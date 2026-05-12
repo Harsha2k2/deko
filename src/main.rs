@@ -7,7 +7,6 @@ mod routes;
 mod services;
 
 use std::net::SocketAddr;
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use config::{Config, init_tracing};

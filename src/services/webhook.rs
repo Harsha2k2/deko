@@ -1,7 +1,7 @@
 use reqwest::Client;
 use tracing::{info, warn};
 
-use crate::services::VerdictResult;
+use crate::services::llm::VerdictResult;
 
 #[derive(Clone)]
 pub struct WebhookService {

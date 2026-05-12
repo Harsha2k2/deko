@@ -10,7 +10,6 @@ pub struct OpenAIProvider {
     client: reqwest::Client,
     api_key: String,
     model: String,
-    timeout_secs: u64,
 }
 
 #[derive(serde::Serialize)]
@@ -72,7 +71,6 @@ impl OpenAIProvider {
             client,
             api_key,
             model,
-            timeout_secs,
         }
     }
 }
