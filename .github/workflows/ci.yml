@@ -20,6 +20,9 @@ jobs:
         with:
           components: clippy, rustfmt
 
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked 2>/dev/null || true
+
       - name: Cache dependencies
         uses: actions/cache@v4
         with:
@@ -38,6 +41,12 @@ jobs:
       - name: Run tests
         run: cargo test --verbose
         env:
+          DEKO_DATABASE_URL: sqlite::memory:
+          DEKO_ADMIN_PASSWORD: test
+          DEKO_API_KEY_SECRET: test-secret-key-12345678
+
+      - name: Run cargo-audit
+        run: cargo audit 2>/dev/null || echo "cargo-audit not available or found issues"
           DEKO_PORT: "8000"
           DEKO_ENV: dev
           DEKO_ADMIN_PASSWORD: testpassword

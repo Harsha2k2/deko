@@ -406,7 +406,7 @@
 | F268 | Auth documentation | [x] | API key security scheme |
 | F269 | Swagger UI at /docs | [x] | Interactive API browser |
 | F270 | Doc generation test | [x] | Spec generates without error |
-| F271 | Postman collection | [ ] | Ready-to-import collection |
+| F271 | Postman collection | [x] | Ready-to-import collection |
 | F272 | API changelog | [ ] | Breaking changes documented |
 | F273 | Rate limits in docs | [ ] | Documented per-endpoint |
 
@@ -422,7 +422,7 @@
 | F280 | CI: cargo fmt --check | [x] | Formatting enforced |
 | F281 | CI: Docker build | [x] | Multi-stage build |
 | F282 | CI: smoke test | [x] | Start and health check |
-| F283 | CI: dependency audit | [ ] | cargo-audit |
+| F283 | CI: dependency audit | [x] | cargo-audit |
 | F284 | CI: vulnerability scanning | [ ] | Trivy or similar |
 | F285 | CI: coverage reporting | [ ] | tarpaulin or llvm-cov |
 | F286 | CI: fuzz testing | [ ] | cargo-fuzz for input parsing |

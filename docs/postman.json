@@ -1,0 +1,48 @@
+{
+  "info": {
+    "name": "Deko API",
+    "description": "AI Agent Action Watchdog - REST API collection",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {"name": "GET /health", "request": {"method": "GET", "url": "localhost:8000/health"}},
+        {"name": "GET /health/live", "request": {"method": "GET", "url": "localhost:8000/health/live"}},
+        {"name": "GET /health/ready", "request": {"method": "GET", "url": "localhost:8000/health/ready"}},
+        {"name": "GET /metrics", "request": {"method": "GET", "url": "localhost:8000/metrics"}},
+        {"name": "GET /docs", "request": {"method": "GET", "url": "localhost:8000/docs/"}}
+      ]
+    },
+    {
+      "name": "Admin",
+      "item": [
+        {"name": "POST /admin/login", "request": {"method": "POST", "url": "localhost:8000/admin/login", "body": {"mode": "raw", "raw": "{\"password\":\"changeme\"}"}, "header": [{"key": "Content-Type", "value": "application/json"}]}},
+        {"name": "GET /admin", "request": {"method": "GET", "url": "localhost:8000/admin", "header": [{"key": "X-Admin-Password", "value": "changeme"}]}},
+        {"name": "POST /admin/agents/register", "request": {"method": "POST", "url": "localhost:8000/admin/agents/register", "header": [{"key": "X-Admin-Password", "value": "changeme"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\"name\":\"my-agent\"}"}}}
+      ]
+    },
+    {
+      "name": "Actions",
+      "item": [
+        {"name": "POST /action", "request": {"method": "POST", "url": "localhost:8000/action", "header": [{"key": "X-API-Key", "value": "<agent-key>"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\"intent\":\"Buy 10 shares of AAPL\"}"}}},
+        {"name": "GET /action/{{id}}/status", "request": {"method": "GET", "url": "localhost:8000/action/{{id}}/status", "header": [{"key": "X-API-Key", "value": "<agent-key>"}]}},
+        {"name": "POST /actions/batch", "request": {"method": "POST", "url": "localhost:8000/actions/batch", "header": [{"key": "X-API-Key", "value": "<agent-key>"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\"actions\":[{\"intent\":\"Action 1\"},{\"intent\":\"Action 2\"}]}"}}}
+      ]
+    },
+    {
+      "name": "Policies",
+      "item": [
+        {"name": "POST /admin/policies", "request": {"method": "POST", "url": "localhost:8000/admin/policies", "header": [{"key": "X-Admin-Password", "value": "changeme"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\"name\":\"Block Delete\",\"rules\":[{\"type\":\"deny_keyword\",\"keywords\":[\"delete\"]}]}"}}},
+        {"name": "GET /admin/policies", "request": {"method": "GET", "url": "localhost:8000/admin/policies", "header": [{"key": "X-Admin-Password", "value": "changeme"}]}}
+      ]
+    },
+    {
+      "name": "Export",
+      "item": [
+        {"name": "GET /admin/actions/export", "request": {"method": "GET", "url": "localhost:8000/admin/actions/export", "header": [{"key": "X-Admin-Password", "value": "changeme"}]}}
+      ]
+    }
+  ]
+}
