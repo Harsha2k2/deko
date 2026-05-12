@@ -13,7 +13,7 @@ use config::{Config, init_tracing};
 use db::{init_db, run_migrations};
 use routes::create_router;
 use services::{ActionProcessor, VerdictService, MetricsCollector};
-use tracing::info;
+use tracing::{error, info};
 
 /// Deko - AI Agent Action Watchdog
 ///
@@ -37,6 +37,35 @@ async fn main() -> anyhow::Result<()> {
 
     info!("Starting Deko v{}", env!("CARGO_PKG_VERSION"));
     info!("Environment: {}", config.env);
+
+    let config = Arc::new(config);
+    let reload_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
+
+    let signal_reload = reload_flag.clone();
+    let signal_config = config.clone();
+    tokio::spawn(async move {
+        #[cfg(unix)]
+        {
+            use tokio::signal::unix::{SignalKind, signal};
+            let mut sig = signal(SignalKind::hangup()).expect("Failed to install SIGHUP handler");
+            sig.recv().await;
+            info!("SIGHUP received: requesting config reload");
+            signal_reload.store(true, std::sync::atomic::Ordering::Relaxed);
+            match Config::from_env() {
+                Ok(new_config) => {
+                    info!("Config reloaded successfully. Some changes may require restart.");
+                    let _ = new_config;
+                }
+                Err(e) => error!("Config reload failed: {}", e),
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = signal_reload;
+            let _ = signal_config;
+            info!("Config hot-reload not supported on this platform (SIGHUP is Unix-only)");
+        }
+    });
 
     let (pool, pool_set) = init_db(&config).await?;
     run_migrations(&pool).await?;

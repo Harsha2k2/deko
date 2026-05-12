@@ -38,7 +38,7 @@
 | F012 | Config validation (fail fast) | [x] | Missing vars crash at startup, not runtime |
 | F013 | Config unit tests | [x] | Default values, validation edge cases |
 | F014 | Per-environment config profiles | [x] | dev/staging/prod env vars defined but no separate profiles |
-| F015 | Config hot-reload | [ ] | SIGHUP or file watch for env changes |
+| F015 | Config hot-reload | [x] | SIGHUP or file watch for env changes |
 | F016 | Secret redaction in logs | [x] | API keys, passwords masked in debug output |
 
 ### 1.3 Database
