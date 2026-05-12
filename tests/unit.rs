@@ -490,3 +490,11 @@ fn test_sanitize_input_removes_xss() {
     assert!(!sanitized.contains("<script>"));
     assert!(sanitized.contains("&lt;"));
 }
+
+#[test]
+fn test_clippy_toml_is_valid() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("clippy.toml");
+    assert!(path.exists(), "clippy.toml must exist");
+    let content = std::fs::read_to_string(&path).unwrap();
+    assert!(content.contains("allow-unwrap-in-tests"), "clippy.toml should contain test-specific config");
+}

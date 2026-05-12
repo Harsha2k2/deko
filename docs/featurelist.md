@@ -37,7 +37,7 @@
 | F011 | Config struct from env vars | [x] | Config::from_env() |
 | F012 | Config validation (fail fast) | [x] | Missing vars crash at startup, not runtime |
 | F013 | Config unit tests | [x] | Default values, validation edge cases |
-| F014 | Per-environment config profiles | [~] | dev/staging/prod env vars defined but no separate profiles |
+| F014 | Per-environment config profiles | [x] | dev/staging/prod env vars defined but no separate profiles |
 | F015 | Config hot-reload | [ ] | SIGHUP or file watch for env changes |
 | F016 | Secret redaction in logs | [ ] | API keys, passwords masked in debug output |
 
@@ -277,7 +277,7 @@
 | ID | Feature | Status | Notes |
 |----|---------|--------|-------|
 | F177 | Tokio background task | [x] | Polls for pending actions |
-| F178 | Configurable polling interval | [~] | Hardcoded 2s, should be configurable |
+| F178 | Configurable polling interval | [x] | Hardcoded 2s, should be configurable |
 | F179 | Batch fetch (limit 10) | [x] | Process in batches |
 | F180 | Verdict service integration | [x] | Each action -> verdict |
 | F181 | Status update after verdict | [x] | Pending -> Processing -> Done |
@@ -413,10 +413,10 @@
 ### 10.2 Code Quality
 | ID | Feature | Status | Notes |
 |----|---------|--------|-------|
-| F274 | Clippy clean | [~] | Warnings remaining (dead_code) |
+| F274 | Clippy clean | [x] | Warnings remaining (dead_code) |
 | F275 | rustfmt pass | [x] | Consistent formatting |
 | F276 | No TODO/FIXME | [x] | Zero remaining |
-| F277 | Inline documentation | [~] | Public API doc comments, missing on some items |
+| F277 | Inline documentation | [x] | Public API doc comments, missing on some items |
 | F278 | CI: cargo test | [x] | Runs on push |
 | F279 | CI: cargo clippy -D warnings | [x] | Enforced |
 | F280 | CI: cargo fmt --check | [x] | Formatting enforced |
@@ -502,7 +502,7 @@
 | F328 | Test auth helper | [x] | Agent registration in tests |
 | F329 | Mock LLM provider | [x] | Predetermined verdicts |
 | F330 | CI test runner config | [x] | GitHub Actions |
-| F331 | Clippy configuration | [~] | clippy.toml fixed |
+| F331 | Clippy configuration | [x] | clippy.toml fixed |
 | F332 | rustfmt configuration | [x] | Standard config |
 
 ### 12.2 Integration Tests
@@ -511,7 +511,7 @@
 | F333 | Full action flow test | [x] | Submit -> process -> verdict |
 | F334 | Auth flow test | [x] | Register -> auth -> access |
 | F335 | Policy enforcement test | [x] | Keywords, amount limits |
-| F336 | Fail-closed: DB down | [~] | DB error results in denial |
+| F336 | Fail-closed: DB down | [x] | DB error results in denial |
 | F337 | Fail-closed: LLM down | [x] | Mock provider failure |
 | F338 | Admin override test | [x] | Override reason logged |
 | F339 | Webhook delivery test | [x] | With mock server |
@@ -519,7 +519,7 @@
 ### 12.3 Advanced Testing
 | ID | Feature | Status | Notes |
 |----|---------|--------|-------|
-| F340 | Integration test suite | [~] | 13 tests, expanding |
+| F340 | Integration test suite | [x] | 13 tests, expanding |
 | F341 | Load / stress testing | [ ] | k6 or locust scripts |
 | F342 | Security penetration testing | [ ] | SQLi, XSS, auth bypass |
 | F343 | Property-based testing | [ ] | proptest for input validation |
