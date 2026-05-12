@@ -3,7 +3,7 @@ use axum::extract::{Path, Query, State};
 use axum::response::{Html, IntoResponse};
 use axum::Json;
 use serde::Deserialize;
-use sqlx::SqlitePool;
+use crate::db::DbPool;
 
 use crate::error::{AppError, Result};
 use crate::models::{Action, ActionStatus, AuditLog, Verdict};
@@ -150,7 +150,7 @@ pub async fn admin_login_page() -> Html<String> {
 }
 
 pub async fn admin_login(
-    State(_pool): State<SqlitePool>,
+    State(_pool): State<DbPool>,
     Json(req): Json<AdminLoginRequest>,
 ) -> Result<axum::response::Response> {
     use axum::http::header::{SET_COOKIE, HeaderValue};
@@ -169,7 +169,7 @@ pub async fn admin_login(
     Ok(response)
 }
 
-pub async fn dashboard(State(pool): State<SqlitePool>) -> Html<String> {
+pub async fn dashboard(State(pool): State<DbPool>) -> Html<String> {
     let total_actions: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM actions")
         .fetch_one(&pool).await.map_err(AppError::Database).unwrap_or((0,));
 
@@ -217,7 +217,7 @@ pub struct ActionsQuery {
 }
 
 pub async fn list_admin_actions(
-    State(pool): State<SqlitePool>,
+    State(pool): State<DbPool>,
     Query(params): Query<ActionsQuery>,
 ) -> Html<String> {
     let status_filter = params.status.clone();
@@ -250,7 +250,7 @@ pub async fn list_admin_actions(
 }
 
 pub async fn get_admin_action_detail(
-    State(pool): State<SqlitePool>,
+    State(pool): State<DbPool>,
     Path(id): Path<String>,
 ) -> Html<String> {
     let action = sqlx::query_as::<_, Action>(
@@ -334,7 +334,7 @@ pub struct OverrideRequest {
 }
 
 pub async fn override_action(
-    State(pool): State<SqlitePool>,
+    State(pool): State<DbPool>,
     Path(id): Path<String>,
     axum::Form(req): axum::Form<OverrideRequest>,
 ) -> Result<axum::response::Redirect> {
@@ -357,7 +357,7 @@ pub async fn override_action(
 
     let mut tx = pool.begin().await.map_err(AppError::Database)?;
 
-    sqlx::query("UPDATE actions SET status = 'approved', updated_at = datetime('now') WHERE id = ?")
+    sqlx::query("UPDATE actions SET status = 'approved', updated_at = CURRENT_TIMESTAMP WHERE id = ?")
         .bind(&id)
         .execute(&mut *tx)
         .await
@@ -395,7 +395,7 @@ struct AuditLogRow {
 }
 
 pub async fn audit_log_viewer(
-    State(pool): State<SqlitePool>,
+    State(pool): State<DbPool>,
     Query(params): Query<AuditQuery>,
 ) -> Html<String> {
     let page = params.page.unwrap_or(1);
@@ -487,7 +487,7 @@ struct VerdictRow {
     created_at: String,
 }
 
-pub async fn agent_management(State(pool): State<SqlitePool>) -> Html<String> {
+pub async fn agent_management(State(pool): State<DbPool>) -> Html<String> {
     let agents: Vec<(String, String, bool, String)> = sqlx::query_as(
         "SELECT id, name, active, created_at FROM agents ORDER BY created_at DESC",
     )
@@ -503,7 +503,7 @@ pub async fn agent_management(State(pool): State<SqlitePool>) -> Html<String> {
     Html(AgentManagementTemplate { agents }.to_html())
 }
 
-pub async fn policy_management(State(pool): State<SqlitePool>) -> Html<String> {
+pub async fn policy_management(State(pool): State<DbPool>) -> Html<String> {
     let policies: Vec<(String, String, String, String, bool, String, String)> = sqlx::query_as(
         "SELECT id, name, description, rules, active, created_at, updated_at FROM policies ORDER BY created_at DESC",
     )
@@ -525,7 +525,7 @@ pub struct VerdictsQuery {
     pub decision: Option<String>,
 }
 
-pub async fn verdict_history(State(pool): State<SqlitePool>, Query(params): Query<VerdictsQuery>) -> Html<String> {
+pub async fn verdict_history(State(pool): State<DbPool>, Query(params): Query<VerdictsQuery>) -> Html<String> {
     let mut query = "SELECT action_id, decision, risk_level, reason, policy_matched, created_at FROM verdicts WHERE 1=1".to_string();
 
     if let Some(decision) = &params.decision {

@@ -1,4 +1,4 @@
-use sqlx::SqlitePool;
+use crate::db::DbPool;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::time::{interval, Duration};
@@ -7,14 +7,14 @@ use tracing::{error, info};
 use crate::services::verdict::VerdictService;
 
 pub struct ActionProcessor {
-    pub pool: SqlitePool,
+    pub pool: DbPool,
     pub verdict_service: VerdictService,
     pub interval_secs: u64,
     pub shutdown: Arc<AtomicBool>,
 }
 
 impl ActionProcessor {
-    pub fn new(pool: SqlitePool, verdict_service: VerdictService, interval_secs: u64) -> Self {
+    pub fn new(pool: DbPool, verdict_service: VerdictService, interval_secs: u64) -> Self {
         Self {
             pool,
             verdict_service,
@@ -60,7 +60,7 @@ impl ActionProcessor {
 
             if let Err(e) = self.verdict_service.process_action(&action_id).await {
                 error!("Failed to process action {}: {}", action_id, e);
-                sqlx::query("UPDATE actions SET status = 'denied', updated_at = datetime('now') WHERE id = ?")
+                sqlx::query("UPDATE actions SET status = 'denied', updated_at = CURRENT_TIMESTAMP WHERE id = ?")
                     .bind(&action_id)
                     .execute(&self.pool)
                     .await?;

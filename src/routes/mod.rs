@@ -5,7 +5,7 @@ mod health;
 mod policies;
 
 use axum::Router;
-use sqlx::SqlitePool;
+use crate::db::DbPool;
 use tower_http::trace::TraceLayer;
 use tracing::info;
 use utoipa::OpenApi;
@@ -65,7 +65,7 @@ use crate::services::metrics::{MetricsCollector, RateLimiter};
 )]
 pub struct ApiDoc;
 
-pub fn create_router(config: &Config, pool: SqlitePool) -> anyhow::Result<Router> {
+pub fn create_router(config: &Config, pool: DbPool) -> anyhow::Result<Router> {
     info!("Setting up router");
 
     let cors = tower_http::cors::CorsLayer::very_permissive();

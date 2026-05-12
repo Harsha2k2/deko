@@ -117,7 +117,7 @@ impl LLMProviderTrait for MockLLMProvider {
 pub struct TestFixtures;
 
 impl TestFixtures {
-    pub async fn create_agent(pool: &sqlx::SqlitePool, name: &str) -> sqlx::Result<(String, String)> {
+    pub async fn create_agent(pool: &crate::db::DbPool, name: &str) -> sqlx::Result<(String, String)> {
         let agent_id = uuid::Uuid::new_v4().to_string();
         let api_key = uuid::Uuid::new_v4().to_string();
         let api_key_hash = crate::middleware::auth::hash_api_key(
@@ -138,7 +138,7 @@ impl TestFixtures {
     }
 
     pub async fn create_action(
-        pool: &sqlx::SqlitePool,
+        pool: &crate::db::DbPool,
         agent_id: &str,
         intent: &str,
     ) -> sqlx::Result<String> {
@@ -163,7 +163,7 @@ impl TestFixtures {
     }
 
     pub async fn create_action_with_details(
-        pool: &sqlx::SqlitePool,
+        pool: &crate::db::DbPool,
         agent_id: &str,
         intent: &str,
         payload: Option<&str>,
@@ -191,7 +191,7 @@ impl TestFixtures {
     }
 
     pub async fn create_policy(
-        pool: &sqlx::SqlitePool,
+        pool: &crate::db::DbPool,
         name: &str,
         rules_json: &str,
     ) -> sqlx::Result<String> {
@@ -211,7 +211,7 @@ impl TestFixtures {
     }
 
     pub async fn create_deny_keyword_policy(
-        pool: &sqlx::SqlitePool,
+        pool: &crate::db::DbPool,
         name: &str,
         keywords: &[&str],
     ) -> sqlx::Result<String> {
@@ -225,7 +225,7 @@ impl TestFixtures {
     }
 
     pub async fn create_max_amount_policy(
-        pool: &sqlx::SqlitePool,
+        pool: &crate::db::DbPool,
         name: &str,
         max: f64,
     ) -> sqlx::Result<String> {
@@ -240,7 +240,7 @@ impl TestFixtures {
 }
 
 pub struct TestApp {
-    pub pool: sqlx::SqlitePool,
+    pub pool: crate::db::DbPool,
     pub metrics: Arc<crate::services::MetricsCollector>,
 }
 

@@ -22,7 +22,7 @@ fn test_config() -> Config {
     Config::from_env().unwrap()
 }
 
-async fn setup_test_db() -> sqlx::SqlitePool {
+async fn setup_test_db() -> deko::db::DbPool {
     let config = test_config();
     let pool = init_db(&config).await.unwrap();
     run_migrations(&pool).await.unwrap();

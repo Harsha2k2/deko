@@ -3,7 +3,7 @@ use axum::extract::{Request, State};
 use axum::http::StatusCode;
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
-use sqlx::SqlitePool;
+use crate::db::DbPool;
 use tracing::warn;
 
 use crate::models::Agent;
@@ -11,7 +11,7 @@ use crate::models::Agent;
 /// State required by the API key authentication middleware.
 #[derive(Clone)]
 pub struct AgentState {
-    pub pool: SqlitePool,
+    pub pool: DbPool,
     pub api_key_secret: String,
 }
 

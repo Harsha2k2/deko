@@ -1,7 +1,7 @@
 use axum::extract::{Path, State};
 use axum::Json;
 use serde::Deserialize;
-use sqlx::SqlitePool;
+use crate::db::DbPool;
 use utoipa::ToSchema;
 
 use crate::error::{AppError, Result};
@@ -29,7 +29,7 @@ pub struct UpdatePolicyRequest {
     security(("AdminPassword" = []))
 )]
 pub async fn create_policy(
-    State(pool): State<SqlitePool>,
+    State(pool): State<DbPool>,
     axum::Extension(_admin): axum::Extension<bool>,
     Json(req): Json<CreatePolicyRequest>,
 ) -> Result<Json<serde_json::Value>> {
@@ -73,7 +73,7 @@ pub async fn create_policy(
 )]
 #[allow(dead_code)]
 pub async fn list_policies(
-    State(pool): State<SqlitePool>,
+    State(pool): State<DbPool>,
     axum::Extension(_admin): axum::Extension<bool>,
 ) -> Result<Json<serde_json::Value>> {
     let policies: Vec<(String, String, String, String, bool, String, String)> = sqlx::query_as(
@@ -106,7 +106,7 @@ pub async fn list_policies(
     security(("AdminPassword" = []))
 )]
 pub async fn update_policy(
-    State(pool): State<SqlitePool>,
+    State(pool): State<DbPool>,
     axum::Extension(_admin): axum::Extension<bool>,
     Path(id): Path<String>,
     Json(req): Json<UpdatePolicyRequest>,
@@ -145,7 +145,7 @@ pub async fn update_policy(
         return Err(AppError::BadRequest("No fields to update".into()));
     }
 
-    fields.push("updated_at = datetime('now')".to_string());
+    fields.push("updated_at = CURRENT_TIMESTAMP".to_string());
 
     let set_clause = fields.join(", ");
     let query = format!("UPDATE policies SET {} WHERE id = ?", set_clause);
@@ -177,11 +177,11 @@ pub async fn update_policy(
     security(("AdminPassword" = []))
 )]
 pub async fn delete_policy(
-    State(pool): State<SqlitePool>,
+    State(pool): State<DbPool>,
     axum::Extension(_admin): axum::Extension<bool>,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>> {
-    let result = sqlx::query("UPDATE policies SET active = 0, updated_at = datetime('now') WHERE id = ?")
+    let result = sqlx::query("UPDATE policies SET active = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
         .bind(&id)
         .execute(&pool)
         .await

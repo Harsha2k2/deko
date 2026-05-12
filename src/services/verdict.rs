@@ -1,4 +1,4 @@
-use sqlx::SqlitePool;
+use crate::db::DbPool;
 use std::sync::Arc;
 use std::time::Instant;
 use tracing::{info, warn};
@@ -13,7 +13,7 @@ use crate::services::webhook::WebhookService;
 use crate::services::metrics::MetricsCollector;
 
 pub struct VerdictService {
-    pub pool: SqlitePool,
+    pub pool: DbPool,
     pub providers: Vec<Box<dyn LLMProviderTrait>>,
     pub default_provider_idx: usize,
     pub webhook: WebhookService,
@@ -21,7 +21,7 @@ pub struct VerdictService {
 }
 
 impl VerdictService {
-    pub fn new(pool: SqlitePool, config: &Config, metrics: Arc<MetricsCollector>) -> Self {
+    pub fn new(pool: DbPool, config: &Config, metrics: Arc<MetricsCollector>) -> Self {
         let mut providers: Vec<Box<dyn LLMProviderTrait>> = Vec::new();
         let mut default_idx = 0;
 
@@ -371,7 +371,7 @@ impl VerdictService {
         .await
         .map_err(AppError::Database)?;
 
-        sqlx::query("UPDATE actions SET status = ?, updated_at = datetime('now') WHERE id = ?")
+        sqlx::query("UPDATE actions SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
             .bind(&status)
             .bind(action_id)
             .execute(&mut *tx)
@@ -424,6 +424,7 @@ impl VerdictService {
         Ok(())
     }
 
+    #[cfg(not(feature = "postgres"))]
     async fn audit_tx(
         &self,
         tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
@@ -433,6 +434,27 @@ impl VerdictService {
     ) -> Result<()> {
         sqlx::query(
             "INSERT INTO audit_log (id, action_id, event_type, details) VALUES (?, ?, ?, ?)",
+        )
+        .bind(uuid::Uuid::new_v4().to_string())
+        .bind(action_id)
+        .bind(event_type)
+        .bind(details)
+        .execute(&mut **tx)
+        .await
+        .map_err(AppError::Database)?;
+        Ok(())
+    }
+
+    #[cfg(feature = "postgres")]
+    async fn audit_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        action_id: &str,
+        event_type: &str,
+        details: &serde_json::Value,
+    ) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO audit_log (id, action_id, event_type, details) VALUES ($1, $2, $3, $4)",
         )
         .bind(uuid::Uuid::new_v4().to_string())
         .bind(action_id)

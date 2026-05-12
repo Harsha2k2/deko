@@ -334,7 +334,7 @@ fn test_dashboard_template_file_exists() {
 // F151: Health check tests
 #[tokio::test]
 async fn test_health_endpoint_returns_ok() {
-    let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+    let pool = deko::db::DbPool::connect("sqlite::memory:").await.unwrap();
     let result: (i64,) = sqlx::query_as("SELECT 1").fetch_one(&pool).await.unwrap();
     assert_eq!(result.0, 1);
 }
@@ -497,4 +497,21 @@ fn test_clippy_toml_is_valid() {
     assert!(path.exists(), "clippy.toml must exist");
     let content = std::fs::read_to_string(&path).unwrap();
     assert!(content.contains("allow-unwrap-in-tests"), "clippy.toml should contain test-specific config");
+}
+
+#[test]
+fn test_config_database_url_sqlite_default() {
+    std::env::set_var("DEKO_DATABASE_URL", "sqlite::memory:");
+    let config = Config::from_env().unwrap();
+    assert!(config.database_url.starts_with("sqlite:"));
+}
+
+#[test]
+fn test_db_pool_is_sqlite_by_default() {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+        let pool = deko::db::DbPool::connect("sqlite::memory:").await.unwrap();
+        let result: (i64,) = sqlx::query_as("SELECT 1").fetch_one(&pool).await.unwrap();
+        assert_eq!(result.0, 1);
+    });
 }

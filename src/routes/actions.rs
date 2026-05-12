@@ -3,7 +3,7 @@ use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::Json;
 use serde::{Deserialize, Serialize};
-use sqlx::SqlitePool;
+use crate::db::DbPool;
 use utoipa::{IntoParams, ToSchema};
 
 use crate::error::{AppError, Result};
@@ -83,7 +83,7 @@ pub struct ListActionsResponse {
     security(("ApiKey" = []))
 )]
 pub async fn create_action(
-    State(pool): State<SqlitePool>,
+    State(pool): State<DbPool>,
     axum::Extension(agent): axum::Extension<Agent>,
     Json(req): Json<CreateActionRequest>,
 ) -> Result<(StatusCode, Json<CreateActionResponse>)> {
@@ -166,7 +166,7 @@ pub async fn create_action(
     security(("ApiKey" = []))
 )]
 pub async fn get_action(
-    State(pool): State<SqlitePool>,
+    State(pool): State<DbPool>,
     axum::Extension(agent): axum::Extension<Agent>,
     Path(id): Path<String>,
 ) -> Result<Json<ActionDetailResponse>> {
@@ -229,7 +229,7 @@ pub async fn get_action(
     security(("ApiKey" = []))
 )]
 pub async fn get_action_status(
-    State(pool): State<SqlitePool>,
+    State(pool): State<DbPool>,
     axum::Extension(agent): axum::Extension<Agent>,
     Path(id): Path<String>,
 ) -> Result<axum::response::Response> {
@@ -297,7 +297,7 @@ pub async fn get_action_status(
     security(("ApiKey" = []))
 )]
 pub async fn list_actions(
-    State(pool): State<SqlitePool>,
+    State(pool): State<DbPool>,
     axum::Extension(agent): axum::Extension<Agent>,
     Query(params): Query<ListActionsQuery>,
 ) -> Result<Json<ListActionsResponse>> {
@@ -368,7 +368,7 @@ pub async fn list_actions(
     security(("ApiKey" = []))
 )]
 pub async fn forward_action(
-    State(pool): State<SqlitePool>,
+    State(pool): State<DbPool>,
     axum::Extension(agent): axum::Extension<Agent>,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>> {

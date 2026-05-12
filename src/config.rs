@@ -5,6 +5,10 @@ use tracing::info;
 
 /// Application configuration loaded from environment variables and per-environment profiles.
 ///
+/// Supports SQLite (default) and PostgreSQL (`postgres` feature flag).
+/// Database type is auto-detected from the `DEKO_DATABASE_URL` prefix
+/// (`sqlite:` or `postgres://`).
+///
 /// # Environment Profiles
 /// Config profiles automatically adjust security-sensitive defaults based on
 /// [`Environment`]:
@@ -262,6 +266,11 @@ impl Config {
 
         if self.env == Environment::Prod && self.allowed_origins.is_empty() {
             bail!("DEKO_ALLOWED_ORIGINS must be explicitly set in production. Set at least one allowed origin.");
+        }
+
+        if self.database_url.starts_with("postgres://") || self.database_url.starts_with("postgresql://") {
+            #[cfg(not(feature = "postgres"))]
+            bail!("PostgreSQL database URL provided but the 'postgres' feature is not enabled. Build with --features postgres or use a sqlite:// URL.");
         }
 
         match self.default_provider {

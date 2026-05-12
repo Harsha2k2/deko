@@ -2,7 +2,7 @@ use axum::extract::{State};
 use axum::http::StatusCode;
 use axum::Json;
 use serde::{Deserialize, Serialize};
-use sqlx::SqlitePool;
+use crate::db::DbPool;
 use utoipa::ToSchema;
 
 use crate::error::{AppError, Result};
@@ -24,7 +24,7 @@ pub struct RegisterAgentRequest {
     )
 )]
 pub async fn register_agent(
-    State(pool): State<SqlitePool>,
+    State(pool): State<DbPool>,
     axum::Extension(admin): axum::Extension<bool>,
     Json(req): Json<RegisterAgentRequest>,
 ) -> Result<(StatusCode, Json<CreateAgentResponse>)> {
@@ -92,7 +92,7 @@ pub struct RevokeAgentRequest {
     )
 )]
 pub async fn revoke_agent(
-    State(pool): State<SqlitePool>,
+    State(pool): State<DbPool>,
     axum::Extension(admin): axum::Extension<bool>,
     Json(req): Json<RevokeAgentRequest>,
 ) -> Result<Json<serde_json::Value>> {
@@ -135,7 +135,7 @@ pub struct AgentSummary {
 )]
 #[allow(dead_code)]
 pub async fn list_agents(
-    State(pool): State<SqlitePool>,
+    State(pool): State<DbPool>,
     axum::Extension(admin): axum::Extension<bool>,
 ) -> Result<Json<ListAgentsResponse>> {
     if !admin {
@@ -184,7 +184,7 @@ pub struct RotateApiKeyResponse {
     )
 )]
 pub async fn rotate_agent_key(
-    State(pool): State<SqlitePool>,
+    State(pool): State<DbPool>,
     axum::Extension(admin): axum::Extension<bool>,
     Json(req): Json<RotateApiKeyRequest>,
 ) -> Result<(StatusCode, Json<RotateApiKeyResponse>)> {
@@ -198,7 +198,7 @@ pub async fn rotate_agent_key(
         .map_err(|_| AppError::Internal)?;
     let new_hash = hash_api_key(&new_api_key, &secret);
 
-    let result = sqlx::query("UPDATE agents SET api_key_hash = ?, updated_at = datetime('now') WHERE id = ? AND active = 1")
+    let result = sqlx::query("UPDATE agents SET api_key_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND active = 1")
         .bind(&new_hash)
         .bind(&req.agent_id)
         .execute(&pool)
