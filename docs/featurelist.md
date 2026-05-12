@@ -251,7 +251,7 @@
 | F161 | Provider health check | [ ] | Periodic ping to ensure provider is up |
 | F162 | Provider latency tracking | [ ] | Track p50/p95/p99 per provider |
 | F163 | Provider cost tracking | [ ] | Token count + cost per verdict |
-| F164 | Prompt templates library | [ ] | Custom prompts per action type |
+| F164 | Prompt templates library | [x] | Custom prompts per action type |
 | F165 | Prompt injection detection | [ ] | Analyze input for prompt injection attempts |
 | F166 | Confidence scoring | [x] | LLM returns confidence with verdict |
 
@@ -389,7 +389,7 @@
 | F259 | Distributed tracing | [ ] | OpenTelemetry integration |
 | F260 | Log retention policies | [ ] | Rotation, archival |
 | F261 | Structured error logging | [x] | Error + context in JSON |
-| F262 | Audit log search | [ ] | Full-text search on audit events |
+| F262 | Audit log search | [x] | Full-text search on audit events |
 | F263 | Metrics histogram buckets | [ ] | Latency distribution |
 | F264 | Per-agent metrics | [ ] | Actions, denials per agent |
 | F265 | Per-policy metrics | [ ] | How often each policy triggers |

@@ -120,6 +120,7 @@ pub fn create_router(config: &Config, pool: DbPool, pool_set: Arc<DbPoolSet>) ->
         .route("/admin/verdicts", axum::routing::get(admin::verdict_history))
         .route("/admin/audit", axum::routing::get(admin::audit_log_viewer))
         .route("/admin/audit/export", axum::routing::get(admin::export_audit_log))
+        .route("/admin/audit/search", axum::routing::get(admin::search_audit_log))
         .layer(axum::middleware::from_fn(admin_auth_middleware));
 
     let app = Router::new()

@@ -678,3 +678,47 @@ pub async fn export_audit_log(
 
     Ok(csv)
 }
+
+#[derive(Deserialize)]
+pub struct AuditSearchQuery {
+    pub q: String,
+    pub limit: Option<i64>,
+}
+
+pub async fn search_audit_log(
+    State(pool): State<crate::db::DbPool>,
+    Query(params): Query<AuditSearchQuery>,
+) -> Result<String> {
+    let limit = params.limit.unwrap_or(50).min(500);
+    let search_term = format!("%{}%", params.q);
+
+    let rows: Vec<(String, Option<String>, String, String, String)> = sqlx::query_as(
+        "SELECT id, action_id, event_type, details, created_at FROM audit_log \
+         WHERE event_type LIKE ? OR details LIKE ? OR action_id LIKE ? \
+         ORDER BY created_at DESC LIMIT ?",
+    )
+    .bind(&search_term)
+    .bind(&search_term)
+    .bind(&search_term)
+    .bind(limit)
+    .fetch_all(&pool)
+    .await
+    .unwrap_or_default();
+
+    let mut results = Vec::new();
+    for row in rows {
+        results.push(serde_json::json!({
+            "id": row.0,
+            "action_id": row.1,
+            "event_type": row.2,
+            "details": row.3,
+            "created_at": row.4,
+        }));
+    }
+
+    Ok(serde_json::to_string_pretty(&serde_json::json!({
+        "results": results,
+        "total": results.len(),
+        "query": params.q,
+    })).unwrap_or_default())
+}
