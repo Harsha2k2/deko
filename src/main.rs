@@ -42,6 +42,7 @@ async fn main() -> anyhow::Result<()> {
     run_migrations(&pool).await?;
 
     let metrics = Arc::new(MetricsCollector::new());
+    metrics.set_pool_config(10, 5);
     let verdict_service = VerdictService::new(pool.clone(), &config, metrics.clone());
     let processor = ActionProcessor::new(pool.clone(), verdict_service, config.processor_poll_interval_secs);
     let shutdown = processor.shutdown.clone();

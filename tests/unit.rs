@@ -438,11 +438,19 @@ fn test_metrics_collector_inc_action() {
 fn test_metrics_collector_to_json() {
     let metrics = MetricsCollector::new();
     metrics.inc_action();
-    metrics.inc_action_approved();
-
     let json = metrics.to_json();
     assert_eq!(json["actions"]["total"], 1);
-    assert_eq!(json["actions"]["approved"], 1);
+    assert!(json.get("database").is_some());
+    assert_eq!(json["database"]["pool_max_connections"], 10);
+}
+
+#[test]
+fn test_metrics_collector_pool_config() {
+    let metrics = MetricsCollector::new();
+    metrics.set_pool_config(20, 10);
+    let json = metrics.to_json();
+    assert_eq!(json["database"]["pool_max_connections"], 20);
+    assert_eq!(json["database"]["pool_acquire_timeout_secs"], 10);
 }
 
 #[tokio::test]

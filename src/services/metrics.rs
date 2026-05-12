@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -30,6 +30,8 @@ pub struct MetricsCollector {
     pub webhook_failed: Arc<AtomicU64>,
     pub request_duration_ms: Arc<AtomicU64>,
     pub request_count: Arc<AtomicU64>,
+    pub pool_max_connections: Arc<AtomicU32>,
+    pub pool_acquire_timeout_secs: Arc<AtomicU64>,
 }
 
 impl Default for MetricsCollector {
@@ -52,7 +54,14 @@ impl MetricsCollector {
             webhook_failed: Arc::new(AtomicU64::new(0)),
             request_duration_ms: Arc::new(AtomicU64::new(0)),
             request_count: Arc::new(AtomicU64::new(0)),
+            pool_max_connections: Arc::new(AtomicU32::new(10)),
+            pool_acquire_timeout_secs: Arc::new(AtomicU64::new(5)),
         }
+    }
+
+    pub fn set_pool_config(&self, max_connections: u32, acquire_timeout_secs: u64) {
+        self.pool_max_connections.store(max_connections, Ordering::Relaxed);
+        self.pool_acquire_timeout_secs.store(acquire_timeout_secs, Ordering::Relaxed);
     }
 
     pub fn inc_action(&self) {
@@ -124,6 +133,10 @@ impl MetricsCollector {
             "http": {
                 "request_count": self.request_count.load(Ordering::Relaxed),
                 "avg_duration_ms": self.request_duration_ms.load(Ordering::Relaxed),
+            },
+            "database": {
+                "pool_max_connections": self.pool_max_connections.load(Ordering::Relaxed),
+                "pool_acquire_timeout_secs": self.pool_acquire_timeout_secs.load(Ordering::Relaxed),
             }
         })
     }
