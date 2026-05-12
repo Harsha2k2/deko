@@ -203,9 +203,9 @@
 | F125 | Policy engine integration tests | [x] | Policy matching with real DB |
 | F126 | AND/OR rule composition | [x] | Combine rules with logical operators |
 | F127 | Rule priority/ordering | [x] | First matching rule wins |
-| F128 | Policy dry-run mode | [ ] | Log what would be denied without blocking |
+| F128 | Policy dry-run mode | [x] | Log what would be denied without blocking |
 | F129 | Policy versioning | [ ] | Track changes to policy rules |
-| F130 | Policy hit statistics | [ ] | Count how often each policy triggers |
+| F130 | Policy hit statistics | [x] | Count how often each policy triggers |
 | F131 | Policy test/simulate endpoint | [ ] | Test a policy against sample action |
 | F132 | Scheduled policy activation | [ ] | Activate/deactivate policies on a schedule |
 | F133 | Policy templates library | [ ] | Pre-built rules: PCI, HIPAA, SOC2 patterns |
@@ -213,7 +213,7 @@
 ### 5.2 Advanced Policy Rules
 | ID | Feature | Status | Notes |
 |----|---------|--------|-------|
-| F134 | URL allowlist/blocklist rule | [ ] | Match against target_url |
+| F134 | URL allowlist/blocklist rule | [x] | Match against target_url |
 | F135 | IP allowlist/blocklist rule | [ ] | Match against request origin |
 | F136 | Day/time window rule | [ ] | Only allow actions during business hours |
 | F137 | Rate-based rule | [ ] | Max N actions per agent per time window |

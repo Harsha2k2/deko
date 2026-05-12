@@ -206,7 +206,10 @@ impl VerdictService {
         .await
         .map_err(AppError::Database)?;
 
+        let is_dry_run = std::env::var("DEKO_POLICY_DRY_RUN").is_ok();
+
         let mut context_parts = Vec::new();
+        let mut had_match = false;
 
         for policy in &policies {
             let rules: serde_json::Value = policy.rules.clone();
@@ -214,8 +217,28 @@ impl VerdictService {
             if let Some(arr) = rules.as_array() {
                 for rule in arr {
                     if let Some(result) = self.evaluate_rule(rule, action) {
+                        had_match = true;
                         context_parts.push(format!("{}: {}", policy.name, result.message));
-                        if result.immediate_deny {
+
+                        // Record hit statistic
+                        sqlx::query(
+                            "INSERT INTO audit_log (id, action_id, event_type, details) VALUES (?, ?, ?, ?)",
+                        )
+                        .bind(uuid::Uuid::new_v4().to_string())
+                        .bind(&action.id)
+                        .bind("policy_matched")
+                        .bind(serde_json::json!({
+                            "policy_id": policy.id,
+                            "policy_name": policy.name,
+                            "rule_type": rule.get("type"),
+                            "message": result.message,
+                            "dry_run": is_dry_run,
+                        }))
+                        .execute(&self.pool)
+                        .await
+                        .ok();
+
+                        if result.immediate_deny && !is_dry_run {
                             return Ok(PolicyEvaluation {
                                 immediate_deny: true,
                                 reason: Some(format!("Policy '{}' violated: {}", policy.name, result.message)),
@@ -227,6 +250,10 @@ impl VerdictService {
                     }
                 }
             }
+        }
+
+        if had_match && is_dry_run {
+            info!("[DRY RUN] Policy would have blocked action {}: {}", action.id, context_parts.join("; "));
         }
 
         Ok(PolicyEvaluation {
@@ -366,6 +393,37 @@ impl VerdictService {
                                 message: format!("Risk flag: {}", kw_str),
                                 risk_level: crate::models::RiskLevel::Medium,
                             });
+                        }
+                    }
+                }
+            }
+            "url_allowlist" => {
+                let allowed = rule.get("patterns")?.as_array()?;
+                if let Some(url) = &action.target_url {
+                    let is_allowed = allowed.iter().any(|p| {
+                        p.as_str().map_or(false, |pat| url.contains(pat))
+                    });
+                    if !is_allowed {
+                        return Some(RuleResult {
+                            immediate_deny: true,
+                            message: format!("URL not in allowlist: {}", url),
+                            risk_level: crate::models::RiskLevel::High,
+                        });
+                    }
+                }
+            }
+            "url_blocklist" => {
+                let blocked = rule.get("patterns")?.as_array()?;
+                if let Some(url) = &action.target_url {
+                    for pat in blocked {
+                        if let Some(pat_str) = pat.as_str() {
+                            if url.contains(pat_str) {
+                                return Some(RuleResult {
+                                    immediate_deny: true,
+                                    message: format!("URL matches blocklist: {}", pat_str),
+                                    risk_level: crate::models::RiskLevel::Critical,
+                                });
+                            }
                         }
                     }
                 }
