@@ -243,3 +243,88 @@ pub async fn rotate_agent_key(
         }),
     ))
 }
+
+#[derive(Debug, Deserialize)]
+pub struct CreateApiKeyRequest {
+    pub agent_id: String,
+    pub label: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CreateApiKeyResponse {
+    pub api_key: String,
+    pub label: String,
+}
+
+pub async fn create_api_key(
+    State(pool): State<crate::db::DbPool>,
+    axum::Extension(admin): axum::Extension<bool>,
+    Json(req): Json<CreateApiKeyRequest>,
+) -> Result<Json<CreateApiKeyResponse>> {
+    if !admin {
+        return Err(AppError::Forbidden("Admin access required".into()));
+    }
+
+    let agent_exists: (bool,) = sqlx::query_as(
+        "SELECT COUNT(*) > 0 FROM agents WHERE id = ? AND active = 1",
+    )
+    .bind(&req.agent_id)
+    .fetch_one(&pool)
+    .await
+    .map_err(AppError::Database)?;
+
+    if !agent_exists.0 {
+        return Err(AppError::NotFound("Active agent not found".into()));
+    }
+
+    let api_key = uuid::Uuid::new_v4().to_string();
+    let raw_key = format!("{}-{}", req.agent_id, api_key);
+    let label = req.label.unwrap_or_else(|| "additional-key".to_string());
+    let key_hash = crate::middleware::auth::hash_api_key(&raw_key, &std::env::var("DEKO_API_KEY_SECRET").unwrap_or_default());
+
+    sqlx::query(
+        "INSERT INTO api_keys (id, agent_id, key_hash, label) VALUES (?, ?, ?, ?)",
+    )
+    .bind(uuid::Uuid::new_v4().to_string())
+    .bind(&req.agent_id)
+    .bind(&key_hash)
+    .bind(&label)
+    .execute(&pool)
+    .await
+    .map_err(AppError::Database)?;
+
+    Ok(Json(CreateApiKeyResponse { api_key: raw_key, label }))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ListApiKeysRequest {
+    pub agent_id: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ApiKeySummary {
+    pub id: String,
+    pub label: String,
+    pub active: bool,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+pub async fn list_api_keys(
+    State(pool): State<crate::db::DbPool>,
+    axum::Extension(admin): axum::Extension<bool>,
+    Json(req): Json<ListApiKeysRequest>,
+) -> Result<Json<Vec<ApiKeySummary>>> {
+    if !admin {
+        return Err(AppError::Forbidden("Admin access required".into()));
+    }
+
+    let keys: Vec<(String, String, bool, chrono::DateTime<chrono::Utc>)> = sqlx::query_as(
+        "SELECT id, label, active, created_at FROM api_keys WHERE agent_id = ? ORDER BY created_at DESC",
+    )
+    .bind(&req.agent_id)
+    .fetch_all(&pool)
+    .await
+    .map_err(AppError::Database)?;
+
+    Ok(Json(keys.into_iter().map(|(id, label, active, created_at)| ApiKeySummary { id, label, active, created_at }).collect()))
+}

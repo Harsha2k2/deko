@@ -37,25 +37,54 @@ pub async fn auth_middleware(
 
     let hashed = hash_api_key(api_key, &state.api_key_secret);
 
-    let agent = match sqlx::query_as::<_, Agent>(
-        "SELECT id, name, api_key_hash, active, created_at, deactivated_reason, deactivated_at, api_key_expires_at FROM agents WHERE api_key_hash = ? AND active = 1",
+    // Check api_keys table first (multi-key support)
+    let key_record = sqlx::query_as::<_, (String, String, Option<String>)>(
+        "SELECT agent_id, label, expires_at FROM api_keys WHERE key_hash = ? AND active = 1",
     )
     .bind(&hashed)
     .fetch_optional(&state.pool)
-    .await
-    {
-        Ok(Some(a)) => {
-            if let Some(expires) = &a.api_key_expires_at {
-                if *expires < chrono::Utc::now() {
+    .await;
+
+    let agent = if let Ok(Some((agent_id, _label, expires_at))) = &key_record {
+        if let Some(expires) = expires_at {
+            if let Ok(expires_dt) = chrono::DateTime::parse_from_rfc3339(expires) {
+                if expires_dt < chrono::Utc::now() {
                     return unauthorized("API key has expired");
                 }
             }
-            a
         }
-        Ok(None) => return unauthorized("Invalid or revoked API key"),
-        Err(e) => {
-            warn!("Database error during auth: {}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error").into_response();
+        match sqlx::query_as::<_, Agent>(
+            "SELECT id, name, api_key_hash, active, created_at, deactivated_reason, deactivated_at, api_key_expires_at FROM agents WHERE id = ? AND active = 1",
+        )
+        .bind(agent_id)
+        .fetch_optional(&state.pool)
+        .await
+        {
+            Ok(Some(a)) => a,
+            _ => return unauthorized("Agent not found or deactivated"),
+        }
+    } else {
+        // Fallback: direct agent key lookup (legacy)
+        match sqlx::query_as::<_, Agent>(
+            "SELECT id, name, api_key_hash, active, created_at, deactivated_reason, deactivated_at, api_key_expires_at FROM agents WHERE api_key_hash = ? AND active = 1",
+        )
+        .bind(&hashed)
+        .fetch_optional(&state.pool)
+        .await
+        {
+            Ok(Some(a)) => {
+                if let Some(expires) = &a.api_key_expires_at {
+                    if *expires < chrono::Utc::now() {
+                        return unauthorized("API key has expired");
+                    }
+                }
+                a
+            }
+            Ok(None) => return unauthorized("Invalid or revoked API key"),
+            Err(e) => {
+                warn!("Database error during auth: {}", e);
+                return (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error").into_response();
+            }
         }
     };
 

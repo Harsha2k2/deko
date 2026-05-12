@@ -4,6 +4,7 @@ pub mod verdict;
 pub mod policy;
 pub mod audit_log;
 pub mod enums;
+pub mod api_key;
 
 pub use agent::*;
 pub use action::*;

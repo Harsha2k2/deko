@@ -1,0 +1,21 @@
+{
+  "name": "deko",
+  "version": "1.0.0",
+  "description": "**Deko** is a security middleware that sits between autonomous AI agents and real-world actions. It intercepts every action an AI agent wants to perform, evaluates it against your security policies and AI-powered risk analysis, and makes a strict decision: **approve**, **deny**, or **escalate for human review**.",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "scripts": {
+    "build:ts": "npx tsc --noEmit && npx esbuild ts/app.ts --bundle --minify --outfile=static/app.js",
+    "build": "npm run build:ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "esbuild": "^0.28.0",
+    "typescript": "^6.0.3"
+  }
+}
