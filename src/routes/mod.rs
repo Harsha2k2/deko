@@ -165,8 +165,12 @@ async fn admin_auth_middleware(
         })
         .unwrap_or_default();
 
-    let is_admin = !admin_password.is_empty()
-        && (auth_header == admin_password || cookie_password == admin_password);
+    let is_admin = if admin_password.is_empty() {
+        false
+    } else {
+        let valid_passwords: Vec<&str> = admin_password.split(',').map(|s| s.trim()).collect();
+        valid_passwords.iter().any(|p| *p == auth_header || *p == cookie_password)
+    };
 
     if !is_admin {
         return (StatusCode::FORBIDDEN, axum::Json(serde_json::json!({"error": "Admin access required"}))).into_response();

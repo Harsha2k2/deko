@@ -122,7 +122,7 @@
 | F068 | Route protection middleware | [x] | Checks header or cookie |
 | F069 | HttpOnly+Secure+SameSite cookie | [x] | Secure cookie flags |
 | F070 | Admin auth tests | [x] | Login, logout, protected routes |
-| F071 | Multi-admin support | [ ] | Multiple admin accounts with roles |
+| F071 | Multi-admin support | [x] | Multiple admin accounts with roles |
 | F072 | SSO/OAuth2 for admin | [ ] | Google, GitHub, Okta integration |
 | F073 | Session timeout / expiry | [x] | Configurable TTL on admin sessions |
 | F074 | Admin action confirmation | [ ] | Require re-auth for destructive admin actions |
@@ -207,7 +207,7 @@
 | F129 | Policy versioning | [ ] | Track changes to policy rules |
 | F130 | Policy hit statistics | [x] | Count how often each policy triggers |
 | F131 | Policy test/simulate endpoint | [ ] | Test a policy against sample action |
-| F132 | Scheduled policy activation | [ ] | Activate/deactivate policies on a schedule |
+| F132 | Scheduled policy activation | [x] | Activate/deactivate policies on a schedule |
 | F133 | Policy templates library | [ ] | Pre-built rules: PCI, HIPAA, SOC2 patterns |
 
 ### 5.2 Advanced Policy Rules

@@ -201,7 +201,10 @@ impl VerdictService {
 
     async fn evaluate_policies(&self, action: &crate::models::Action) -> Result<PolicyEvaluation> {
         let policies: Vec<Policy> = sqlx::query_as(
-            "SELECT id, name, description, rules, active, created_at, updated_at FROM policies WHERE active = 1",
+            "SELECT id, name, description, rules, active, created_at, updated_at FROM policies \
+             WHERE active = 1 \
+             AND (activate_at IS NULL OR activate_at <= CURRENT_TIMESTAMP) \
+             AND (deactivate_at IS NULL OR deactivate_at > CURRENT_TIMESTAMP)",
         )
         .fetch_all(&self.pool)
         .await
@@ -487,7 +490,7 @@ impl VerdictService {
                         let allowed = rule.get("patterns")?.as_array()?;
                         if let Some(ip) = source_ip {
                             let is_allowed = allowed.iter().any(|p| {
-                                p.as_str().map_or(false, |pat| ip.contains(pat))
+                                p.as_str().is_some_and(|pat| ip.contains(pat))
                             });
                             if !is_allowed {
                                 return Some(RuleResult {
