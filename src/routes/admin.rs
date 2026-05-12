@@ -576,3 +576,74 @@ pub async fn verdict_history(State(pool): State<crate::db::DbPool>, Query(params
 
     Html(VerdictHistoryTemplate { verdicts }.to_html())
 }
+
+#[derive(Deserialize)]
+pub struct BulkOverrideRequest {
+    pub action_ids: Vec<String>,
+    pub reason: String,
+}
+
+pub async fn bulk_override_actions(
+    State(pool): State<crate::db::DbPool>,
+    headers: axum::http::HeaderMap,
+    Json(req): Json<BulkOverrideRequest>,
+) -> Result<Json<serde_json::Value>> {
+    if headers.get("X-Admin-Confirm").and_then(|v| v.to_str().ok()) != Some("yes") {
+        return Err(AppError::BadRequest("Confirmation required: set X-Admin-Confirm: yes header".into()));
+    }
+    if req.reason.trim().is_empty() {
+        return Err(AppError::BadRequest("reason is required".into()));
+    }
+    if req.action_ids.len() > 100 {
+        return Err(AppError::BadRequest("Maximum 100 actions per bulk operation".into()));
+    }
+
+    let mut overridden = 0;
+    for action_id in &req.action_ids {
+        let result = sqlx::query("UPDATE actions SET status = 'approved', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status IN ('denied', 'escalated')")
+            .bind(action_id)
+            .execute(&pool)
+            .await
+            .map_err(AppError::Database)?;
+        if result.rows_affected() > 0 {
+            sqlx::query(
+                "INSERT INTO audit_log (id, action_id, event_type, details) VALUES (?, ?, 'action_overridden', ?)",
+            )
+            .bind(uuid::Uuid::new_v4().to_string())
+            .bind(action_id)
+            .bind(serde_json::json!({"reason": req.reason, "bulk": true}))
+            .execute(&pool)
+            .await
+            .ok();
+            overridden += 1;
+        }
+    }
+
+    Ok(Json(serde_json::json!({ "overridden": overridden, "total": req.action_ids.len() })))
+}
+
+pub async fn export_actions_csv(
+    State(pool): State<crate::db::DbPool>,
+    Query(params): Query<serde_json::Value>,
+) -> Result<String> {
+    let status_filter = params.get("status").and_then(|v| v.as_str()).unwrap_or("");
+    let mut query = "SELECT a.id, ag.name, a.intent, a.status, v.decision, v.risk_level, a.created_at FROM actions a JOIN agents ag ON a.agent_id = ag.id LEFT JOIN verdicts v ON a.id = v.action_id".to_string();
+    if !status_filter.is_empty() {
+        query.push_str(&format!(" WHERE a.status = '{}'", status_filter));
+    }
+    query.push_str(" ORDER BY a.created_at DESC LIMIT 1000");
+
+    let rows: Vec<(String, String, String, String, Option<String>, Option<String>, String)> = sqlx::query_as(&query)
+        .fetch_all(&pool)
+        .await
+        .unwrap_or_default();
+
+    let mut csv = "id,agent,intent,status,decision,risk_level,created_at\n".to_string();
+    for row in rows {
+        csv.push_str(&format!("\"{}\",\"{}\",\"{}\",{},{},{},{}\n",
+            row.0, row.1, row.2.replace('"', "\"\""), row.3,
+            row.4.unwrap_or_default(), row.5.unwrap_or_default(), row.6));
+    }
+
+    Ok(csv)
+}

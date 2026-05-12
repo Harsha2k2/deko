@@ -105,6 +105,8 @@ pub fn create_router(config: &Config, pool: DbPool, pool_set: Arc<DbPoolSet>) ->
         .route("/admin/actions", axum::routing::get(admin::list_admin_actions))
         .route("/admin/actions/{id}", axum::routing::get(admin::get_admin_action_detail))
         .route("/admin/actions/{id}/override", axum::routing::post(admin::override_action))
+        .route("/admin/actions/export", axum::routing::get(admin::export_actions_csv))
+        .route("/admin/actions/bulk-override", axum::routing::post(admin::bulk_override_actions))
         .route("/admin/agents", axum::routing::get(admin::agent_management))
         .route("/admin/agents/register", axum::routing::post(auth::register_agent))
         .route("/admin/agents/revoke", axum::routing::post(auth::revoke_agent))

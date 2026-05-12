@@ -353,8 +353,8 @@
 | F235 | GET /admin/audit - log | [x] | Filtered |
 | F236 | Admin API tests | [x] | End-to-end |
 | F237 | Admin API versioning | [ ] | Backward compatible |
-| F238 | Export CSV/JSON | [ ] | Download actions, audit log |
-| F239 | Bulk operations | [ ] | Bulk override, bulk revoke |
+| F238 | Export CSV/JSON | [x] | Download actions, audit log |
+| F239 | Bulk operations | [x] | Bulk override, bulk revoke |
 
 ---
 
