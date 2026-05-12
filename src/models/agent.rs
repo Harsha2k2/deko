@@ -15,6 +15,7 @@ pub struct Agent {
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub deactivated_reason: Option<String>,
     pub deactivated_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub api_key_expires_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]

@@ -38,13 +38,20 @@ pub async fn auth_middleware(
     let hashed = hash_api_key(api_key, &state.api_key_secret);
 
     let agent = match sqlx::query_as::<_, Agent>(
-        "SELECT id, name, api_key_hash, active, created_at, deactivated_reason, deactivated_at FROM agents WHERE api_key_hash = ? AND active = 1",
+        "SELECT id, name, api_key_hash, active, created_at, deactivated_reason, deactivated_at, api_key_expires_at FROM agents WHERE api_key_hash = ? AND active = 1",
     )
     .bind(&hashed)
     .fetch_optional(&state.pool)
     .await
     {
-        Ok(Some(a)) => a,
+        Ok(Some(a)) => {
+            if let Some(expires) = &a.api_key_expires_at {
+                if *expires < chrono::Utc::now() {
+                    return unauthorized("API key has expired");
+                }
+            }
+            a
+        }
         Ok(None) => return unauthorized("Invalid or revoked API key"),
         Err(e) => {
             warn!("Database error during auth: {}", e);

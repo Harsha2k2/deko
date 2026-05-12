@@ -155,7 +155,7 @@ pub async fn list_agents(
     }
 
     let agents: Vec<Agent> = sqlx::query_as(
-        "SELECT id, name, api_key_hash, active, created_at, deactivated_reason, deactivated_at FROM agents ORDER BY created_at DESC",
+        "SELECT id, name, api_key_hash, active, created_at, deactivated_reason, deactivated_at, api_key_expires_at FROM agents ORDER BY created_at DESC",
     )
     .fetch_all(&pool)
     .await

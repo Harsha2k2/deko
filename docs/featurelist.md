@@ -109,7 +109,7 @@
 | F059 | API key rotation | [x] | POST /admin/agents/rotate-key |
 | F060 | Auth integration tests | [x] | Full register -> auth -> access flow |
 | F061 | Multi-key per agent | [ ] | Multiple API keys per agent with labels |
-| F062 | API key expiration | [ ] | TTL on keys with auto-revocation |
+| F062 | API key expiration | [x] | TTL on keys with auto-revocation |
 | F063 | API key audit | [x] | Log key generation, revocation, last used |
 | F064 | JWT-based auth alternative | [ ] | For server-to-server integration |
 
