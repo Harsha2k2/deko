@@ -304,7 +304,7 @@
 | F198 | Webhook delivery logging | [x] | Success/failure in audit log |
 | F199 | Webhook tests | [x] | With mock server |
 | F200 | Custom webhook per agent | [x] | Per-agent webhook URL |
-| F201 | Webhook secret/signature | [ ] | HMAC signed payloads |
+| F201 | Webhook secret/signature | [x] | HMAC signed payloads |
 | F202 | Multiple webhook endpoints | [ ] | Fan-out to multiple URLs |
 | F203 | Webhook delivery guarantees | [ ] | At-least-once delivery |
 | F204 | Webhook rate limiting | [ ] | Prevent overwhelming targets |

@@ -1,4 +1,5 @@
 use reqwest::Client;
+use sha2::{Digest, Sha256};
 use tracing::{info, warn};
 
 use crate::services::llm::VerdictResult;
@@ -7,13 +8,16 @@ use crate::services::llm::VerdictResult;
 pub struct WebhookService {
     pub client: Client,
     pub webhook_url: Option<String>,
+    pub webhook_secret: Option<String>,
 }
 
 impl WebhookService {
     pub fn new(webhook_url: Option<String>) -> Self {
+        let webhook_secret = std::env::var("DEKO_WEBHOOK_SECRET").ok();
         Self {
             client: Client::new(),
             webhook_url,
+            webhook_secret,
         }
     }
 
@@ -33,6 +37,19 @@ impl WebhookService {
             "model": verdict.model,
         });
 
+        let payload_bytes = serde_json::to_vec(&payload)?;
+        let signature = self.webhook_secret.as_ref().map(|secret| {
+            let mut hasher = Sha256::new();
+            hasher.update(secret.as_bytes());
+            hasher.update(&payload_bytes);
+            hex::encode(hasher.finalize())
+        });
+
+        let mut request = self.client.post(url).json(&payload);
+        if let Some(ref sig) = signature {
+            request = request.header("X-Deko-Signature", sig);
+        }
+
         let mut last_err = None;
         for attempt in 0..=2 {
             if attempt > 0 {
@@ -41,7 +58,7 @@ impl WebhookService {
                 tokio::time::sleep(delay).await;
             }
 
-            match self.client.post(url).json(&payload).send().await {
+            match request.try_clone().unwrap_or_else(|| self.client.post(url).json(&payload)).send().await {
                 Ok(response) => {
                     if response.status().is_success() {
                         info!("Webhook delivered for action {} on attempt {}", action_id, attempt + 1);
