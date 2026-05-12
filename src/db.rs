@@ -98,6 +98,10 @@ pub async fn run_migrations(pool: &DbPool) -> anyhow::Result<()> {
         return Ok(());
     }
 
+    if let Ok(backup_dir) = std::env::var("DEKO_BACKUP_DIR") {
+        backup_database(&backup_dir).await;
+    }
+
     #[cfg(not(feature = "postgres"))]
     let result = sqlx::migrate!("./migrations").run(pool).await;
 
@@ -118,5 +122,41 @@ pub async fn run_migrations(pool: &DbPool) -> anyhow::Result<()> {
                 e, e
             );
         }
+    }
+}
+
+/// Performs a file-level backup of the SQLite database before migrations.
+/// For PostgreSQL, this is a no-op (use pg_dump externally).
+async fn backup_database(backup_dir: &str) {
+    let db_url = std::env::var("DEKO_DATABASE_URL").unwrap_or_default();
+
+    if !db_url.starts_with("sqlite:") {
+        info!("Skipping file backup for non-SQLite database. Use pg_dump or your preferred tool.");
+        return;
+    }
+
+    let db_path = db_url.trim_start_matches("sqlite://").trim_start_matches("sqlite:");
+    let db_path = if db_path.is_empty() { "data/deko.db" } else { db_path };
+
+    let path = std::path::Path::new(db_path);
+    if !path.exists() {
+        info!("Database file not found at {}, skipping backup", db_path);
+        return;
+    }
+
+    let backup_name = format!(
+        "deko_backup_{}.db",
+        chrono::Utc::now().format("%Y%m%d_%H%M%S")
+    );
+    let backup_path = std::path::Path::new(backup_dir).join(&backup_name);
+
+    if let Err(e) = std::fs::create_dir_all(backup_dir) {
+        error!("Failed to create backup directory {}: {}", backup_dir, e);
+        return;
+    }
+
+    match std::fs::copy(path, &backup_path) {
+        Ok(size) => info!("Database backed up to {} ({} bytes)", backup_path.display(), size),
+        Err(e) => error!("Database backup failed: {}", e),
     }
 }
