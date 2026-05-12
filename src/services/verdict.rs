@@ -71,6 +71,8 @@ impl VerdictService {
         .map_err(AppError::Database)?
         .ok_or_else(|| AppError::NotFound("Action not found".into()))?;
 
+        let agent_id = action.agent_id.clone();
+
         if action.status != ActionStatus::Pending {
             info!("Action {} already processed (status: {:?}), skipping", action_id, action.status);
             return Ok(());
@@ -93,6 +95,7 @@ impl VerdictService {
         if policy_result.immediate_deny {
             self.save_verdict(
                 action_id,
+                &agent_id,
                 VerdictResult {
                     decision: crate::models::VerdictDecision::Denied,
                     reason: policy_result.reason.unwrap_or_else(|| "Blocked by policy rule".to_string()),
@@ -115,6 +118,7 @@ impl VerdictService {
 
         self.save_verdict(
             action_id,
+            &agent_id,
             verdict_result,
             policy_result.matched_policy_id,
         )
@@ -557,6 +561,7 @@ impl VerdictService {
     async fn save_verdict(
         &self,
         action_id: &str,
+        agent_id: &str,
         verdict: VerdictResult,
         policy_matched: Option<String>,
     ) -> Result<()> {
@@ -621,7 +626,16 @@ impl VerdictService {
         tx.commit().await.map_err(AppError::Database)?;
 
         if matches!(verdict.decision, crate::models::VerdictDecision::Denied | crate::models::VerdictDecision::Escalate) {
-            if let Err(e) = self.webhook.send_verdict(action_id, &verdict).await {
+            let agent_webhook: Option<(Option<String>,)> = sqlx::query_as(
+                "SELECT webhook_url FROM agents WHERE id = ?"
+            )
+            .bind(agent_id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(AppError::Database)?;
+
+            let webhook_url = agent_webhook.and_then(|r| r.0);
+            if let Err(e) = self.webhook.send_verdict(action_id, &verdict, webhook_url.as_deref()).await {
                 warn!("Failed to send webhook for action {}: {}", action_id, e);
             }
         }

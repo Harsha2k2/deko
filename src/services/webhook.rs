@@ -17,8 +17,9 @@ impl WebhookService {
         }
     }
 
-    pub async fn send_verdict(&self, action_id: &str, verdict: &VerdictResult) -> anyhow::Result<()> {
-        let Some(url) = &self.webhook_url else {
+    pub async fn send_verdict(&self, action_id: &str, verdict: &VerdictResult, agent_webhook_url: Option<&str>) -> anyhow::Result<()> {
+        let url = agent_webhook_url.or(self.webhook_url.as_deref());
+        let Some(url) = url else {
             return Ok(());
         };
 
