@@ -54,7 +54,7 @@
 | F024 | Migration runner | [x] | SQLx migrate run at startup |
 | F025 | DB connection test | [x] | In-memory SQLite for tests |
 | F026 | PostgreSQL support | [x] | SQLx supports it, need Feature flag + config |
-| F027 | Read replica support | [ ] | Separate read/write connection pools |
+| F027 | Read replica support | [x] | Separate read/write connection pools |
 | F028 | Connection pool metrics | [ ] | Expose pool size, wait times |
 | F029 | Automatic migration rollback | [ ] | Rollback scripts for each migration |
 | F030 | Database backup automation | [ ] | Script for SQLite backup/restore |

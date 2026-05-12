@@ -1,7 +1,6 @@
 use axum::extract::{Path, State};
 use axum::Json;
 use serde::Deserialize;
-use crate::db::DbPool;
 use utoipa::ToSchema;
 
 use crate::error::{AppError, Result};
@@ -29,7 +28,7 @@ pub struct UpdatePolicyRequest {
     security(("AdminPassword" = []))
 )]
 pub async fn create_policy(
-    State(pool): State<DbPool>,
+    State(pool): State<crate::db::DbPool>,
     axum::Extension(_admin): axum::Extension<bool>,
     Json(req): Json<CreatePolicyRequest>,
 ) -> Result<Json<serde_json::Value>> {
@@ -73,7 +72,7 @@ pub async fn create_policy(
 )]
 #[allow(dead_code)]
 pub async fn list_policies(
-    State(pool): State<DbPool>,
+    State(pool): State<crate::db::DbPool>,
     axum::Extension(_admin): axum::Extension<bool>,
 ) -> Result<Json<serde_json::Value>> {
     let policies: Vec<(String, String, String, String, bool, String, String)> = sqlx::query_as(
@@ -106,7 +105,7 @@ pub async fn list_policies(
     security(("AdminPassword" = []))
 )]
 pub async fn update_policy(
-    State(pool): State<DbPool>,
+    State(pool): State<crate::db::DbPool>,
     axum::Extension(_admin): axum::Extension<bool>,
     Path(id): Path<String>,
     Json(req): Json<UpdatePolicyRequest>,
@@ -177,7 +176,7 @@ pub async fn update_policy(
     security(("AdminPassword" = []))
 )]
 pub async fn delete_policy(
-    State(pool): State<DbPool>,
+    State(pool): State<crate::db::DbPool>,
     axum::Extension(_admin): axum::Extension<bool>,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>> {

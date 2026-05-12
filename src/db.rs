@@ -1,3 +1,5 @@
+use std::ops::Deref;
+use std::sync::Arc;
 #[cfg(not(feature = "postgres"))]
 use sqlx::{sqlite::SqlitePoolOptions, SqlitePool};
 #[cfg(feature = "postgres")]
@@ -11,26 +13,81 @@ pub type DbPool = SqlitePool;
 #[cfg(feature = "postgres")]
 pub type DbPool = PgPool;
 
-pub async fn init_db(config: &Config) -> anyhow::Result<DbPool> {
-    info!("Initializing database connection");
+/// Wraps writer and optional reader pools for read replica support.
+///
+/// When `DEKO_DATABASE_READ_URL` is set, use `.reader()` for read-only
+/// SELECT queries and `.writer()` for INSERT/UPDATE/DELETE. Otherwise
+/// both methods return the same pool.
+///
+/// The `DbPoolSet` is placed in request extensions so route handlers
+/// can access it without changing their `State<DbPool>` signature.
+#[derive(Clone)]
+pub struct DbPoolSet {
+    #[allow(dead_code)]
+    writer: DbPool,
+    #[allow(dead_code)]
+    reader: DbPool,
+}
 
+impl DbPoolSet {
+    pub fn new(writer: DbPool, reader: DbPool) -> Self {
+        Self { writer, reader }
+    }
+
+    pub fn writer(&self) -> &DbPool {
+        &self.writer
+    }
+
+    #[allow(dead_code)]
+    pub fn reader(&self) -> &DbPool {
+        &self.reader
+    }
+}
+
+/// Auto-deref to the writer pool so &DbPoolSet can be used with sqlx.
+impl Deref for DbPoolSet {
+    type Target = DbPool;
+
+    fn deref(&self) -> &Self::Target {
+        self.writer()
+    }
+}
+
+async fn create_pool(url: &str) -> anyhow::Result<DbPool> {
     #[cfg(not(feature = "postgres"))]
     let pool = SqlitePoolOptions::new()
         .max_connections(10)
         .acquire_timeout(std::time::Duration::from_secs(5))
-        .connect(&config.database_url)
+        .connect(url)
         .await?;
 
     #[cfg(feature = "postgres")]
     let pool = PgPoolOptions::new()
         .max_connections(10)
         .acquire_timeout(std::time::Duration::from_secs(5))
-        .connect(&config.database_url)
+        .connect(url)
         .await?;
+
+    Ok(pool)
+}
+
+pub async fn init_db(config: &Config) -> anyhow::Result<(DbPool, Arc<DbPoolSet>)> {
+    info!("Initializing database connection");
+
+    let writer = create_pool(&config.database_url).await?;
+
+    let reader = if let Some(ref reader_url) = config.database_read_url {
+        info!("Using read replica: {}", reader_url);
+        create_pool(reader_url).await?
+    } else {
+        writer.clone()
+    };
+
+    let pool_set = Arc::new(DbPoolSet::new(writer.clone(), reader));
 
     info!("Database pool created successfully");
 
-    Ok(pool)
+    Ok((writer, pool_set))
 }
 
 pub async fn run_migrations(pool: &DbPool) -> anyhow::Result<()> {

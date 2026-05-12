@@ -1,6 +1,6 @@
 use axum::extract::State;
 use axum::Json;
-use crate::db::DbPool;
+
 use utoipa::ToSchema;
 
 use crate::error::AppError;
@@ -22,7 +22,7 @@ pub struct HealthResponse {
         (status = 503, description = "Service unhealthy"),
     )
 )]
-pub async fn health(State(pool): State<DbPool>) -> Result<Json<HealthResponse>, AppError> {
+pub async fn health(State(pool): State<crate::db::DbPool>) -> Result<Json<HealthResponse>, AppError> {
     let db_status = match sqlx::query("SELECT 1").fetch_one(&pool).await {
         Ok(_) => "healthy",
         Err(_) => "unhealthy",
@@ -53,7 +53,7 @@ pub async fn health(State(pool): State<DbPool>) -> Result<Json<HealthResponse>, 
         (status = 503, description = "Not ready"),
     )
 )]
-pub async fn readiness(State(pool): State<DbPool>) -> Result<Json<serde_json::Value>, AppError> {
+pub async fn readiness(State(pool): State<crate::db::DbPool>) -> Result<Json<serde_json::Value>, AppError> {
     match sqlx::query("SELECT 1").fetch_one(&pool).await {
         Ok(_) => Ok(Json(serde_json::json!({ "status": "ready" }))),
         Err(_) => Err(AppError::Internal),

@@ -260,7 +260,7 @@ impl TestApp {
         std::env::set_var("DEKO_PROCESSOR_POLL_INTERVAL_SECS", "1");
 
         let config = crate::config::Config::from_env().unwrap();
-        let pool = crate::db::init_db(&config).await.unwrap();
+        let (pool, _pool_set) = crate::db::init_db(&config).await.unwrap();
         crate::db::run_migrations(&pool).await.unwrap();
 
         Self {

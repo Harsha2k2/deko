@@ -5,7 +5,8 @@ mod health;
 mod policies;
 
 use axum::Router;
-use crate::db::DbPool;
+use std::sync::Arc;
+use crate::db::{DbPool, DbPoolSet};
 use tower_http::trace::TraceLayer;
 use tracing::info;
 use utoipa::OpenApi;
@@ -65,7 +66,7 @@ use crate::services::metrics::{MetricsCollector, RateLimiter};
 )]
 pub struct ApiDoc;
 
-pub fn create_router(config: &Config, pool: DbPool) -> anyhow::Result<Router> {
+pub fn create_router(config: &Config, pool: DbPool, pool_set: Arc<DbPoolSet>) -> anyhow::Result<Router> {
     info!("Setting up router");
 
     let cors = tower_http::cors::CorsLayer::very_permissive();
@@ -95,7 +96,8 @@ pub fn create_router(config: &Config, pool: DbPool) -> anyhow::Result<Router> {
         .layer(axum::middleware::from_fn(
             crate::services::rate_limit_middleware,
         ))
-        .layer(axum::Extension(rate_limiter.clone()));
+        .layer(axum::Extension(rate_limiter.clone()))
+        .layer(axum::Extension(pool_set));
 
     let admin_routes = Router::new()
         .route("/admin", axum::routing::get(admin::dashboard))

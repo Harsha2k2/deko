@@ -24,7 +24,7 @@ fn test_llm_provider_display() {
 async fn test_db_connection() {
     std::env::set_var("DEKO_DATABASE_URL", "sqlite::memory:");
     let config = Config::from_env().unwrap();
-    let pool = deko::db::init_db(&config).await.unwrap();
+    let (pool, _pool_set) = deko::db::init_db(&config).await.unwrap();
     let result: (i64,) = sqlx::query_as("SELECT 1").fetch_one(&pool).await.unwrap();
     assert_eq!(result.0, 1);
 }

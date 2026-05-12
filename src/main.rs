@@ -38,7 +38,7 @@ async fn main() -> anyhow::Result<()> {
     info!("Starting Deko v{}", env!("CARGO_PKG_VERSION"));
     info!("Environment: {}", config.env);
 
-    let pool = init_db(&config).await?;
+    let (pool, pool_set) = init_db(&config).await?;
     run_migrations(&pool).await?;
 
     let metrics = Arc::new(MetricsCollector::new());
@@ -50,7 +50,7 @@ async fn main() -> anyhow::Result<()> {
         processor.run().await;
     });
 
-    let app = create_router(&config, pool.clone())?;
+    let app = create_router(&config, pool.clone(), pool_set)?;
 
     let addr: SocketAddr = config.addr();
     info!("Server listening on {}", addr);

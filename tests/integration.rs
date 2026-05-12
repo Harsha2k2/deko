@@ -22,18 +22,18 @@ fn test_config() -> Config {
     Config::from_env().unwrap()
 }
 
-async fn setup_test_db() -> deko::db::DbPool {
+async fn setup_test_db() -> (deko::db::DbPool, Arc<deko::db::DbPoolSet>) {
     let config = test_config();
-    let pool = init_db(&config).await.unwrap();
+    let (pool, pool_set) = init_db(&config).await.unwrap();
     run_migrations(&pool).await.unwrap();
-    pool
+    (pool, pool_set)
 }
 
 #[tokio::test]
 async fn test_health_endpoint() {
-    let pool = setup_test_db().await;
+    let (pool, pool_set) = setup_test_db().await;
     let config = test_config();
-    let app = create_router(&config, pool).unwrap();
+    let app = create_router(&config, pool.clone(), pool_set.clone()).unwrap();
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -54,7 +54,7 @@ async fn test_health_endpoint() {
 
 #[tokio::test]
 async fn test_action_lifecycle() {
-    let pool = setup_test_db().await;
+    let (pool, _pool_set) = setup_test_db().await;
 
     let (agent_id, _api_key) = TestFixtures::create_agent(&pool, "test_agent").await.unwrap();
     let action_id = TestFixtures::create_action(&pool, &agent_id, "Buy 10 shares of AAPL").await.unwrap();
@@ -71,7 +71,7 @@ async fn test_action_lifecycle() {
 
 #[tokio::test]
 async fn test_mock_llm_approved() {
-    let pool = setup_test_db().await;
+    let (pool, _pool_set) = setup_test_db().await;
 
     let (agent_id, _) = TestFixtures::create_agent(&pool, "test_agent").await.unwrap();
     let action_id = TestFixtures::create_action(&pool, &agent_id, "View dashboard").await.unwrap();
@@ -99,7 +99,7 @@ async fn test_mock_llm_approved() {
 
 #[tokio::test]
 async fn test_mock_llm_denied() {
-    let pool = setup_test_db().await;
+    let (pool, _pool_set) = setup_test_db().await;
 
     let (agent_id, _) = TestFixtures::create_agent(&pool, "test_agent").await.unwrap();
     let action_id = TestFixtures::create_action(&pool, &agent_id, "Delete all records").await.unwrap();
@@ -127,7 +127,7 @@ async fn test_mock_llm_denied() {
 
 #[tokio::test]
 async fn test_mock_llm_escalated() {
-    let pool = setup_test_db().await;
+    let (pool, _pool_set) = setup_test_db().await;
 
     let (agent_id, _) = TestFixtures::create_agent(&pool, "test_agent").await.unwrap();
     let action_id = TestFixtures::create_action(&pool, &agent_id, "Transfer $50,000").await.unwrap();
@@ -155,7 +155,7 @@ async fn test_mock_llm_escalated() {
 
 #[tokio::test]
 async fn test_mock_llm_failure_fails_closed() {
-    let pool = setup_test_db().await;
+    let (pool, _pool_set) = setup_test_db().await;
 
     let (agent_id, _) = TestFixtures::create_agent(&pool, "test_agent").await.unwrap();
     let action_id = TestFixtures::create_action(&pool, &agent_id, "Some action").await.unwrap();
@@ -180,7 +180,7 @@ async fn test_mock_llm_failure_fails_closed() {
 
 #[tokio::test]
 async fn test_policy_deny_keyword() {
-    let pool = setup_test_db().await;
+    let (pool, _pool_set) = setup_test_db().await;
 
     TestFixtures::create_deny_keyword_policy(&pool, "No Delete All", &["delete_all", "delete everything"]).await.unwrap();
 
@@ -201,7 +201,7 @@ async fn test_policy_deny_keyword() {
 
 #[tokio::test]
 async fn test_policy_max_amount() {
-    let pool = setup_test_db().await;
+    let (pool, _pool_set) = setup_test_db().await;
 
     TestFixtures::create_max_amount_policy(&pool, "Transfer Limit", 10000.0).await.unwrap();
 
@@ -228,7 +228,7 @@ async fn test_policy_max_amount() {
 
 #[tokio::test]
 async fn test_audit_log_created_for_verdict() {
-    let pool = setup_test_db().await;
+    let (pool, _pool_set) = setup_test_db().await;
 
     let mock = MockLLMProvider::approved();
 
@@ -253,7 +253,7 @@ async fn test_audit_log_created_for_verdict() {
 
 #[tokio::test]
 async fn test_fail_closed_on_real_llm_failure() {
-    let pool = setup_test_db().await;
+    let (pool, _pool_set) = setup_test_db().await;
 
     let (agent_id, _) = TestFixtures::create_agent(&pool, "test_agent").await.unwrap();
     let action_id = TestFixtures::create_action(&pool, &agent_id, "Test action").await.unwrap();
@@ -299,9 +299,9 @@ async fn test_test_app_helper() {
 
 #[tokio::test]
 async fn test_all_health_endpoints() {
-    let pool = setup_test_db().await;
+    let (pool, pool_set) = setup_test_db().await;
     let config = test_config();
-    let app = create_router(&config, pool).unwrap();
+    let app = create_router(&config, pool.clone(), pool_set.clone()).unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
@@ -324,9 +324,9 @@ async fn test_all_health_endpoints() {
 
 #[tokio::test]
 async fn test_admin_login_valid_password() {
-    let pool = setup_test_db().await;
+    let (pool, pool_set) = setup_test_db().await;
     let config = test_config();
-    let app = create_router(&config, pool).unwrap();
+    let app = create_router(&config, pool.clone(), pool_set.clone()).unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
@@ -344,9 +344,9 @@ async fn test_admin_login_valid_password() {
 
 #[tokio::test]
 async fn test_admin_login_invalid_password() {
-    let pool = setup_test_db().await;
+    let (pool, pool_set) = setup_test_db().await;
     let config = test_config();
-    let app = create_router(&config, pool).unwrap();
+    let app = create_router(&config, pool.clone(), pool_set.clone()).unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
@@ -364,9 +364,9 @@ async fn test_admin_login_invalid_password() {
 
 #[tokio::test]
 async fn test_admin_dashboard_requires_auth() {
-    let pool = setup_test_db().await;
+    let (pool, pool_set) = setup_test_db().await;
     let config = test_config();
-    let app = create_router(&config, pool).unwrap();
+    let app = create_router(&config, pool.clone(), pool_set.clone()).unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
@@ -383,9 +383,9 @@ async fn test_admin_dashboard_requires_auth() {
 
 #[tokio::test]
 async fn test_admin_dashboard_with_valid_password() {
-    let pool = setup_test_db().await;
+    let (pool, pool_set) = setup_test_db().await;
     let config = test_config();
-    let app = create_router(&config, pool).unwrap();
+    let app = create_router(&config, pool.clone(), pool_set.clone()).unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
@@ -403,9 +403,9 @@ async fn test_admin_dashboard_with_valid_password() {
 
 #[tokio::test]
 async fn test_action_create_via_http_with_valid_key() {
-    let pool = setup_test_db().await;
+    let (pool, pool_set) = setup_test_db().await;
     let config = test_config();
-    let app = create_router(&config, pool.clone()).unwrap();
+    let app = create_router(&config, pool.clone(), pool_set.clone()).unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
@@ -434,9 +434,9 @@ async fn test_action_create_via_http_with_valid_key() {
 
 #[tokio::test]
 async fn test_action_create_via_http_without_key_returns_401() {
-    let pool = setup_test_db().await;
+    let (pool, pool_set) = setup_test_db().await;
     let config = test_config();
-    let app = create_router(&config, pool).unwrap();
+    let app = create_router(&config, pool.clone(), pool_set.clone()).unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
@@ -454,9 +454,9 @@ async fn test_action_create_via_http_without_key_returns_401() {
 
 #[tokio::test]
 async fn test_action_status_returns_pending_initially() {
-    let pool = setup_test_db().await;
+    let (pool, pool_set) = setup_test_db().await;
     let config = test_config();
-    let app = create_router(&config, pool.clone()).unwrap();
+    let app = create_router(&config, pool.clone(), pool_set.clone()).unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
@@ -481,9 +481,9 @@ async fn test_action_status_returns_pending_initially() {
 
 #[tokio::test]
 async fn test_action_filter_by_status() {
-    let pool = setup_test_db().await;
+    let (pool, pool_set) = setup_test_db().await;
     let config = test_config();
-    let app = create_router(&config, pool.clone()).unwrap();
+    let app = create_router(&config, pool.clone(), pool_set.clone()).unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
@@ -505,9 +505,9 @@ async fn test_action_filter_by_status() {
 
 #[tokio::test]
 async fn test_metrics_endpoint() {
-    let pool = setup_test_db().await;
+    let (pool, pool_set) = setup_test_db().await;
     let config = test_config();
-    let app = create_router(&config, pool).unwrap();
+    let app = create_router(&config, pool.clone(), pool_set.clone()).unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
@@ -528,9 +528,9 @@ async fn test_metrics_endpoint() {
 
 #[tokio::test]
 async fn test_admin_register_agent_via_http() {
-    let pool = setup_test_db().await;
+    let (pool, pool_set) = setup_test_db().await;
     let config = test_config();
-    let app = create_router(&config, pool).unwrap();
+    let app = create_router(&config, pool.clone(), pool_set.clone()).unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
@@ -553,9 +553,9 @@ async fn test_admin_register_agent_via_http() {
 
 #[tokio::test]
 async fn test_swagger_docs_served() {
-    let pool = setup_test_db().await;
+    let (pool, pool_set) = setup_test_db().await;
     let config = test_config();
-    let app = create_router(&config, pool).unwrap();
+    let app = create_router(&config, pool.clone(), pool_set.clone()).unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 

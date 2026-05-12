@@ -24,6 +24,7 @@ pub struct Config {
     pub env: Environment,
     pub admin_password: String,
     pub database_url: String,
+    pub database_read_url: Option<String>,
     pub default_provider: LLMProvider,
     #[allow(dead_code)]
     pub default_model: String,
@@ -164,6 +165,8 @@ impl Config {
         let database_url = std::env::var("DEKO_DATABASE_URL")
             .map_err(|_| anyhow::anyhow!("DEKO_DATABASE_URL is required"))?;
 
+        let database_read_url = std::env::var("DEKO_DATABASE_READ_URL").ok();
+
         let default_provider = match std::env::var("LLM_DEFAULT_PROVIDER").as_deref() {
             Ok("openai") => LLMProvider::OpenAI,
             Ok("gemini") => LLMProvider::Gemini,
@@ -229,6 +232,7 @@ impl Config {
             env,
             admin_password,
             database_url,
+            database_read_url,
             default_provider,
             default_model,
             openai_api_key,

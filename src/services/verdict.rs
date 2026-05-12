@@ -1,5 +1,5 @@
-use crate::db::DbPool;
 use std::sync::Arc;
+use crate::db::DbPool;
 use std::time::Instant;
 use tracing::{info, warn};
 
