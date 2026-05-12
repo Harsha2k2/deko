@@ -202,9 +202,36 @@ impl VerdictService {
                         confidence: 0.0,
                     }
                 }
+                }
+            }
+            if rule.get("type").and_then(|t| t.as_str()) == Some("trend_anomaly") {
+                if let Some(ref payload_str) = action.payload {
+                    if let Ok(payload_json) = serde_json::from_str::<serde_json::Value>(payload_str) {
+                        if let Some(amount) = payload_json.get("amount").and_then(|v| v.as_f64()) {
+                            let multiplier = rule.get("multiplier").and_then(|v| v.as_f64()).unwrap_or(2.0);
+                            if let Ok((avg,)) = sqlx::query_as::<_, (Option<f64>,)>(
+                                "SELECT AVG(CAST(JSON_EXTRACT(payload, '$.amount') AS REAL)) FROM actions WHERE agent_id = ? AND status != 'denied'"
+                            )
+                            .bind(&action.agent_id)
+                            .fetch_one(&self.pool)
+                            .await {
+                                if let Some(average) = avg {
+                                    if amount > average * multiplier && !is_dry_run {
+                                        return Ok(PolicyEvaluation {
+                                            immediate_deny: false,
+                                            reason: Some(format!("Amount ${:.2} exceeds {}x historical average of ${:.2}", amount, multiplier, average)),
+                                            risk_level: Some(crate::models::RiskLevel::Medium),
+                                            matched_policy_id: Some(policy.id.clone()),
+                                            context: context_parts.join("; "),
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
-    }
 
     pub async fn test_policies(
         &self,
@@ -589,7 +616,7 @@ impl VerdictService {
                     }
                 }
             }
-            "concurrency_limit" | "budget_limit" => {
+            "concurrency_limit" | "budget_limit" | "trend_anomaly" => {
                 // Checked in evaluate_policies (async context needed)
             }
             "geofence" => {
