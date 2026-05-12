@@ -453,6 +453,20 @@ fn test_metrics_collector_pool_config() {
     assert_eq!(json["database"]["pool_acquire_timeout_secs"], 10);
 }
 
+#[test]
+fn test_metrics_error_counters() {
+    let metrics = MetricsCollector::new();
+    metrics.inc_error_database();
+    metrics.inc_error_llm();
+    metrics.inc_error_validation();
+    metrics.inc_error_auth();
+    let json = metrics.to_json();
+    assert_eq!(json["errors"]["database"], 1);
+    assert_eq!(json["errors"]["llm"], 1);
+    assert_eq!(json["errors"]["validation"], 1);
+    assert_eq!(json["errors"]["auth"], 1);
+}
+
 #[tokio::test]
 async fn test_rate_limiter_allows_first_request() {
     let limiter = RateLimiter::new(10, 60);

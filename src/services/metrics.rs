@@ -30,6 +30,10 @@ pub struct MetricsCollector {
     pub webhook_failed: Arc<AtomicU64>,
     pub request_duration_ms: Arc<AtomicU64>,
     pub request_count: Arc<AtomicU64>,
+    pub errors_database: Arc<AtomicU64>,
+    pub errors_llm: Arc<AtomicU64>,
+    pub errors_validation: Arc<AtomicU64>,
+    pub errors_auth: Arc<AtomicU64>,
     pub pool_max_connections: Arc<AtomicU32>,
     pub pool_acquire_timeout_secs: Arc<AtomicU64>,
 }
@@ -54,10 +58,23 @@ impl MetricsCollector {
             webhook_failed: Arc::new(AtomicU64::new(0)),
             request_duration_ms: Arc::new(AtomicU64::new(0)),
             request_count: Arc::new(AtomicU64::new(0)),
+            errors_database: Arc::new(AtomicU64::new(0)),
+            errors_llm: Arc::new(AtomicU64::new(0)),
+            errors_validation: Arc::new(AtomicU64::new(0)),
+            errors_auth: Arc::new(AtomicU64::new(0)),
             pool_max_connections: Arc::new(AtomicU32::new(10)),
             pool_acquire_timeout_secs: Arc::new(AtomicU64::new(5)),
         }
     }
+
+    #[allow(dead_code)]
+    pub fn inc_error_database(&self) { self.errors_database.fetch_add(1, Ordering::Relaxed); }
+    #[allow(dead_code)]
+    pub fn inc_error_llm(&self) { self.errors_llm.fetch_add(1, Ordering::Relaxed); }
+    #[allow(dead_code)]
+    pub fn inc_error_validation(&self) { self.errors_validation.fetch_add(1, Ordering::Relaxed); }
+    #[allow(dead_code)]
+    pub fn inc_error_auth(&self) { self.errors_auth.fetch_add(1, Ordering::Relaxed); }
 
     pub fn set_pool_config(&self, max_connections: u32, acquire_timeout_secs: u64) {
         self.pool_max_connections.store(max_connections, Ordering::Relaxed);
@@ -137,6 +154,12 @@ impl MetricsCollector {
             "database": {
                 "pool_max_connections": self.pool_max_connections.load(Ordering::Relaxed),
                 "pool_acquire_timeout_secs": self.pool_acquire_timeout_secs.load(Ordering::Relaxed),
+            },
+            "errors": {
+                "database": self.errors_database.load(Ordering::Relaxed),
+                "llm": self.errors_llm.load(Ordering::Relaxed),
+                "validation": self.errors_validation.load(Ordering::Relaxed),
+                "auth": self.errors_auth.load(Ordering::Relaxed),
             }
         })
     }
