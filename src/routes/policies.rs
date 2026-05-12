@@ -202,3 +202,85 @@ pub async fn delete_policy(
 
     Ok(Json(serde_json::json!({ "deleted": true, "id": id })))
 }
+
+#[derive(Deserialize)]
+pub struct TestPolicyRequest {
+    pub rules: serde_json::Value,
+    pub intent: String,
+    pub payload: Option<String>,
+    pub target_url: Option<String>,
+}
+
+pub async fn test_policy(
+    Json(req): Json<TestPolicyRequest>,
+) -> Result<Json<serde_json::Value>> {
+    let fake_action = crate::models::Action {
+        id: "test".into(),
+        agent_id: "test".into(),
+        intent: req.intent,
+        payload: req.payload,
+        screenshot_base64: None,
+        metadata: None,
+        status: crate::models::ActionStatus::Pending,
+        target_url: req.target_url,
+        target_method: None,
+        created_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
+        idempotency_key: None,
+        priority: 5,
+        execute_at: None,
+    };
+
+    let mut matched = false;
+    let mut immediate_deny = false;
+    let mut reason = String::new();
+    let mut risk_level = None;
+
+    if let Some(arr) = req.rules.as_array() {
+        for rule in arr {
+            let rule_type = rule.get("type").and_then(|t| t.as_str()).unwrap_or("");
+            let intent_lower = fake_action.intent.to_lowercase();
+
+            match rule_type {
+                "deny_keyword" => {
+                    if let Some(keywords) = rule.get("keywords").and_then(|k| k.as_array()) {
+                        for kw in keywords {
+                            if let Some(kw_str) = kw.as_str() {
+                                if intent_lower.contains(&kw_str.to_lowercase()) {
+                                    matched = true;
+                                    immediate_deny = true;
+                                    reason = format!("Denied keyword match: {}", kw_str);
+                                    risk_level = Some("critical");
+                                }
+                            }
+                        }
+                    }
+                }
+                "max_amount" => {
+                    if let Some(max) = rule.get("max").and_then(|v| v.as_f64()) {
+                        if let Some(ref payload_str) = fake_action.payload {
+                            if let Ok(payload_json) = serde_json::from_str::<serde_json::Value>(payload_str) {
+                                if let Some(amount) = payload_json.get("amount").and_then(|v| v.as_f64()) {
+                                    if amount > max {
+                                        matched = true;
+                                        immediate_deny = true;
+                                        reason = format!("Amount {} exceeds maximum {}", amount, max);
+                                        risk_level = Some("high");
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    Ok(Json(serde_json::json!({
+        "matched": matched,
+        "immediate_deny": immediate_deny,
+        "reason": if matched { reason } else { "No rules matched".to_string() },
+        "risk_level": risk_level,
+    })))
+}

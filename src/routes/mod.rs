@@ -114,6 +114,7 @@ pub fn create_router(config: &Config, pool: DbPool, pool_set: Arc<DbPoolSet>) ->
         .route("/admin/agents/create-api-key", axum::routing::post(auth::create_api_key))
         .route("/admin/agents/list-api-keys", axum::routing::post(auth::list_api_keys))
         .route("/admin/policies", axum::routing::get(admin::policy_management).post(policies::create_policy))
+        .route("/admin/policies/test", axum::routing::post(policies::test_policy))
         .route("/admin/policies/{id}", axum::routing::put(policies::update_policy))
         .route("/admin/policies/{id}", axum::routing::delete(policies::delete_policy))
         .route("/admin/verdicts", axum::routing::get(admin::verdict_history))
