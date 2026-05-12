@@ -206,7 +206,7 @@
 | F128 | Policy dry-run mode | [x] | Log what would be denied without blocking |
 | F129 | Policy versioning | [ ] | Track changes to policy rules |
 | F130 | Policy hit statistics | [x] | Count how often each policy triggers |
-| F131 | Policy test/simulate endpoint | [ ] | Test a policy against sample action |
+| F131 | Policy test/simulate endpoint | [x] | Test a policy against sample action |
 | F132 | Scheduled policy activation | [x] | Activate/deactivate policies on a schedule |
 | F133 | Policy templates library | [ ] | Pre-built rules: PCI, HIPAA, SOC2 patterns |
 
