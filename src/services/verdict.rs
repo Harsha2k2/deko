@@ -468,6 +468,27 @@ impl VerdictService {
                     }
                 }
             }
+            "rate_limit" => {
+                let max_count = rule.get("max_count").and_then(|v| v.as_i64()).unwrap_or(10) as i64;
+                let window_secs = rule.get("window_secs").and_then(|v| v.as_i64()).unwrap_or(60) as i64;
+                let cutoff = (chrono::Utc::now() - chrono::Duration::seconds(window_secs)).to_rfc3339();
+                let recent: Result<(i64,), _> = sqlx::query_as(
+                    "SELECT COUNT(*) FROM actions WHERE agent_id = ? AND created_at > ? AND status != 'pending'"
+                )
+                .bind(&action.agent_id)
+                .bind(&cutoff)
+                .fetch_one(&self.pool)
+                .await;
+                if let Ok((count,)) = recent {
+                    if count >= max_count {
+                        return Some(RuleResult {
+                            immediate_deny: true,
+                            message: format!("Rate limit: {} actions in {}s (max {})", count, window_secs, max_count),
+                            risk_level: crate::models::RiskLevel::Medium,
+                        });
+                    }
+                }
+            }
             _ => {}
         }
 
