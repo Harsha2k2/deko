@@ -14,6 +14,7 @@ pub struct VerdictResult {
     pub raw_response: String,
     pub provider: LLMProvider,
     pub model: String,
+    pub confidence: f64,
 }
 
 /// Common interface all LLM providers must implement.
@@ -49,7 +50,11 @@ pub fn parse_verdict_json(content: &str, provider: LLMProvider, model: String) -
         decision: String,
         reason: String,
         risk_level: String,
+        #[serde(default = "default_confidence")]
+        confidence: f64,
     }
+
+    fn default_confidence() -> f64 { 0.8 }
 
     let verdict: VerdictOutput = serde_json::from_str(cleaned).map_err(|e| {
         AppError::OpenAI(format!("Failed to parse verdict JSON: {}. Raw: {}", e, content))
@@ -77,6 +82,7 @@ pub fn parse_verdict_json(content: &str, provider: LLMProvider, model: String) -
         raw_response: content.to_string(),
         provider,
         model,
+        confidence: verdict.confidence,
     })
 }
 

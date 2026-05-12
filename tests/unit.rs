@@ -263,6 +263,7 @@ async fn test_webhook_no_url_returns_ok() {
         raw_response: "".into(),
         provider: deko::config::LLMProvider::Gemini,
         model: "test".into(),
+        confidence: 0.5,
     };
     let result = webhook.send_verdict("test-action", &verdict).await;
     assert!(result.is_ok());

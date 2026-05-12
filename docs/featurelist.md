@@ -253,7 +253,7 @@
 | F163 | Provider cost tracking | [ ] | Token count + cost per verdict |
 | F164 | Prompt templates library | [ ] | Custom prompts per action type |
 | F165 | Prompt injection detection | [ ] | Analyze input for prompt injection attempts |
-| F166 | Confidence scoring | [ ] | LLM returns confidence with verdict |
+| F166 | Confidence scoring | [x] | LLM returns confidence with verdict |
 
 ### 6.2 Verdict Service
 | ID | Feature | Status | Notes |

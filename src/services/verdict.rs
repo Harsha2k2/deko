@@ -100,6 +100,7 @@ impl VerdictService {
                     raw_response: String::new(),
                     provider: LLMProvider::Gemini,
                     model: "policy_engine".to_string(),
+                    confidence: 1.0,
                 },
                 policy_result.matched_policy_id,
             )
@@ -182,6 +183,7 @@ impl VerdictService {
                                 raw_response: String::new(),
                                 provider: fallback.name(),
                                 model: fallback.model_name(),
+                                confidence: 0.0,
                             }
                         }
                     }
@@ -193,6 +195,7 @@ impl VerdictService {
                         raw_response: String::new(),
                         provider: primary.name(),
                         model: primary.model_name(),
+                        confidence: 0.0,
                     }
                 }
             }
@@ -609,6 +612,7 @@ impl VerdictService {
                 "risk_level": verdict.risk_level,
                 "provider": verdict.provider,
                 "model": verdict.model,
+                "confidence": verdict.confidence,
                 "policy_matched": policy_matched,
             }),
         )

@@ -110,6 +110,7 @@ impl LLMProviderTrait for MockLLMProvider {
             ),
             provider: LLMProvider::Gemini,
             model: "mock-model".to_string(),
+            confidence: 0.95,
         })
     }
 }
