@@ -401,7 +401,7 @@ impl VerdictService {
                 let allowed = rule.get("patterns")?.as_array()?;
                 if let Some(url) = &action.target_url {
                     let is_allowed = allowed.iter().any(|p| {
-                        p.as_str().map_or(false, |pat| url.contains(pat))
+                        p.as_str().is_some_and(|pat| url.contains(pat))
                     });
                     if !is_allowed {
                         return Some(RuleResult {
