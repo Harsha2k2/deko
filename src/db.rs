@@ -4,7 +4,7 @@ use std::sync::Arc;
 use sqlx::{sqlite::SqlitePoolOptions, SqlitePool};
 #[cfg(feature = "postgres")]
 use sqlx::{postgres::PgPoolOptions, PgPool};
-use tracing::info;
+use tracing::{error, info};
 
 use crate::config::Config;
 
@@ -93,13 +93,30 @@ pub async fn init_db(config: &Config) -> anyhow::Result<(DbPool, Arc<DbPoolSet>)
 pub async fn run_migrations(pool: &DbPool) -> anyhow::Result<()> {
     info!("Running database migrations");
 
+    if std::env::var("DEKO_SKIP_MIGRATIONS").is_ok() {
+        info!("Skipping database migrations (DEKO_SKIP_MIGRATIONS is set)");
+        return Ok(());
+    }
+
     #[cfg(not(feature = "postgres"))]
-    sqlx::migrate!("./migrations").run(pool).await?;
+    let result = sqlx::migrate!("./migrations").run(pool).await;
 
     #[cfg(feature = "postgres")]
-    sqlx::migrate!("./migrations_postgres").run(pool).await?;
+    let result = sqlx::migrate!("./migrations_postgres").run(pool).await;
 
-    info!("Database migrations completed successfully");
-
-    Ok(())
+    match result {
+        Ok(_) => {
+            info!("Database migrations completed successfully");
+            Ok(())
+        }
+        Err(e) => {
+            error!("Migration failed: {}", e);
+            anyhow::bail!(
+                "Database migration failed: {}. To skip: set DEKO_SKIP_MIGRATIONS=1. \
+                 To attempt rollback: create down migrations and set DEKO_MIGRATE_REVERT_ON_FAILURE=1. \
+                 Error: {}",
+                e, e
+            );
+        }
+    }
 }

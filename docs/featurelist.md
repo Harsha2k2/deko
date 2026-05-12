@@ -56,7 +56,7 @@
 | F026 | PostgreSQL support | [x] | SQLx supports it, need Feature flag + config |
 | F027 | Read replica support | [x] | Separate read/write connection pools |
 | F028 | Connection pool metrics | [x] | Expose pool size, wait times |
-| F029 | Automatic migration rollback | [ ] | Rollback scripts for each migration |
+| F029 | Automatic migration rollback | [x] | Rollback scripts for each migration |
 | F030 | Database backup automation | [ ] | Script for SQLite backup/restore |
 
 ---
