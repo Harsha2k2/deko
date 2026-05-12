@@ -257,6 +257,38 @@ impl VerdictService {
             info!("[DRY RUN] Policy would have blocked action {}: {}", action.id, context_parts.join("; "));
         }
 
+        // Check rate limit policies asynchronously
+        for policy in &policies {
+            let rules: serde_json::Value = policy.rules.clone();
+            if let Some(arr) = rules.as_array() {
+                for rule in arr {
+                    if rule.get("type").and_then(|t| t.as_str()) == Some("rate_limit") {
+                        let max_count = rule.get("max_count").and_then(|v| v.as_i64()).unwrap_or(10);
+                        let window_secs = rule.get("window_secs").and_then(|v| v.as_i64()).unwrap_or(60);
+                        let cutoff = (chrono::Utc::now() - chrono::Duration::seconds(window_secs)).to_rfc3339();
+                        if let Ok((count,)) = sqlx::query_as::<_, (i64,)>(
+                            "SELECT COUNT(*) FROM actions WHERE agent_id = ? AND created_at > ? AND status != 'pending'"
+                        )
+                            .bind(&action.agent_id)
+                            .bind(&cutoff)
+                            .fetch_one(&self.pool)
+                            .await
+                        {
+                            if count >= max_count && !is_dry_run {
+                                return Ok(PolicyEvaluation {
+                                    immediate_deny: true,
+                                    reason: Some(format!("Rate limit: {} actions in {}s (max {})", count, window_secs, max_count)),
+                                    risk_level: Some(crate::models::RiskLevel::Medium),
+                                    matched_policy_id: Some(policy.id.clone()),
+                                    context: context_parts.join("; "),
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         Ok(PolicyEvaluation {
             immediate_deny: false,
             reason: None,
@@ -465,27 +497,6 @@ impl VerdictService {
                                 });
                             }
                         }
-                    }
-                }
-            }
-            "rate_limit" => {
-                let max_count = rule.get("max_count").and_then(|v| v.as_i64()).unwrap_or(10) as i64;
-                let window_secs = rule.get("window_secs").and_then(|v| v.as_i64()).unwrap_or(60) as i64;
-                let cutoff = (chrono::Utc::now() - chrono::Duration::seconds(window_secs)).to_rfc3339();
-                let recent: Result<(i64,), _> = sqlx::query_as(
-                    "SELECT COUNT(*) FROM actions WHERE agent_id = ? AND created_at > ? AND status != 'pending'"
-                )
-                .bind(&action.agent_id)
-                .bind(&cutoff)
-                .fetch_one(&self.pool)
-                .await;
-                if let Ok((count,)) = recent {
-                    if count >= max_count {
-                        return Some(RuleResult {
-                            immediate_deny: true,
-                            message: format!("Rate limit: {} actions in {}s (max {})", count, window_secs, max_count),
-                            risk_level: crate::models::RiskLevel::Medium,
-                        });
                     }
                 }
             }
