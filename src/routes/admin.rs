@@ -269,7 +269,7 @@ pub async fn get_admin_action_detail(
     };
 
     let agent = sqlx::query_as::<_, crate::models::Agent>(
-        "SELECT id, name, api_key_hash, active, created_at FROM agents WHERE id = ?",
+        "SELECT id, name, api_key_hash, active, created_at, deactivated_reason, deactivated_at FROM agents WHERE id = ?",
     )
     .bind(&action.agent_id)
     .fetch_optional(&pool)
@@ -488,7 +488,7 @@ struct VerdictRow {
 
 pub async fn agent_management(State(pool): State<crate::db::DbPool>) -> Html<String> {
     let agents: Vec<(String, String, bool, String)> = sqlx::query_as(
-        "SELECT id, name, active, created_at FROM agents ORDER BY created_at DESC",
+        "SELECT id, name, active, created_at, deactivated_reason, deactivated_at FROM agents ORDER BY created_at DESC",
     )
     .fetch_all(&pool).await.unwrap_or_default();
 

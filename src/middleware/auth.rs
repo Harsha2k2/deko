@@ -38,7 +38,7 @@ pub async fn auth_middleware(
     let hashed = hash_api_key(api_key, &state.api_key_secret);
 
     let agent = match sqlx::query_as::<_, Agent>(
-        "SELECT id, name, api_key_hash, active, created_at FROM agents WHERE api_key_hash = ? AND active = 1",
+        "SELECT id, name, api_key_hash, active, created_at, deactivated_reason, deactivated_at FROM agents WHERE api_key_hash = ? AND active = 1",
     )
     .bind(&hashed)
     .fetch_optional(&state.pool)

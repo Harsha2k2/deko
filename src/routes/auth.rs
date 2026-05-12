@@ -79,6 +79,7 @@ pub async fn register_agent(
 #[derive(Deserialize, ToSchema)]
 pub struct RevokeAgentRequest {
     pub agent_id: String,
+    pub reason: Option<String>,
 }
 
 #[utoipa::path(
@@ -99,7 +100,8 @@ pub async fn revoke_agent(
         return Err(AppError::Forbidden("Admin access required".into()));
     }
 
-    let result = sqlx::query("UPDATE agents SET active = 0 WHERE id = ?")
+    let result = sqlx::query("UPDATE agents SET active = 0, deactivated_reason = ?, deactivated_at = CURRENT_TIMESTAMP WHERE id = ?")
+        .bind(&req.reason)
         .bind(&req.agent_id)
         .execute(&pool)
         .await
@@ -142,7 +144,7 @@ pub async fn list_agents(
     }
 
     let agents: Vec<Agent> = sqlx::query_as(
-        "SELECT id, name, api_key_hash, active, created_at FROM agents ORDER BY created_at DESC",
+        "SELECT id, name, api_key_hash, active, created_at, deactivated_reason, deactivated_at FROM agents ORDER BY created_at DESC",
     )
     .fetch_all(&pool)
     .await

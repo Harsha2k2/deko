@@ -13,6 +13,8 @@ pub struct Agent {
     pub api_key_hash: String,
     pub active: bool,
     pub created_at: chrono::DateTime<chrono::Utc>,
+    pub deactivated_reason: Option<String>,
+    pub deactivated_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]

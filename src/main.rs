@@ -42,7 +42,7 @@ async fn main() -> anyhow::Result<()> {
     let reload_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
 
     let signal_reload = reload_flag.clone();
-    let signal_config = config.clone();
+    let _signal_config = config.clone();
     tokio::spawn(async move {
         #[cfg(unix)]
         {
@@ -62,7 +62,7 @@ async fn main() -> anyhow::Result<()> {
         #[cfg(not(unix))]
         {
             let _ = signal_reload;
-            let _ = signal_config;
+            let _ = _signal_config;
             info!("Config hot-reload not supported on this platform (SIGHUP is Unix-only)");
         }
     });

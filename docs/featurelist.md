@@ -77,7 +77,7 @@
 | F039 | LLMProvider enum | [x] | Gemini, OpenAI, Anthropic (planned) |
 | F040 | Model serialization tests | [x] | JSON round-trip for all enums |
 | F041 | Request/Response DTOs | [x] | CreateActionRequest, ActionResponse, etc. |
-| F042 | Soft delete for agents | [ ] | active flag already exists, but need deactivation reason |
+| F042 | Soft delete for agents | [x] | active flag already exists, but need deactivation reason |
 
 ### 2.2 Error Handling
 | ID | Feature | Status | Notes |
