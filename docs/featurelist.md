@@ -124,7 +124,7 @@
 | F070 | Admin auth tests | [x] | Login, logout, protected routes |
 | F071 | Multi-admin support | [ ] | Multiple admin accounts with roles |
 | F072 | SSO/OAuth2 for admin | [ ] | Google, GitHub, Okta integration |
-| F073 | Session timeout / expiry | [ ] | Configurable TTL on admin sessions |
+| F073 | Session timeout / expiry | [x] | Configurable TTL on admin sessions |
 | F074 | Admin action confirmation | [ ] | Require re-auth for destructive admin actions |
 | F075 | Rate limiting on login attempts | [x] | Prevent brute force on admin password |
 
@@ -214,7 +214,7 @@
 | ID | Feature | Status | Notes |
 |----|---------|--------|-------|
 | F134 | URL allowlist/blocklist rule | [x] | Match against target_url |
-| F135 | IP allowlist/blocklist rule | [ ] | Match against request origin |
+| F135 | IP allowlist/blocklist rule | [x] | Match against request origin |
 | F136 | Day/time window rule | [x] | Only allow actions during business hours |
 | F137 | Rate-based rule | [ ] | Max N actions per agent per time window |
 | F138 | Histogram/trend rule | [ ] | Flag if action amount deviates from historical avg |

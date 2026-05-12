@@ -448,6 +448,26 @@ impl VerdictService {
                     });
                 }
             }
+            "ip_allowlist" => {
+                if let Some(meta) = &action.metadata {
+                    if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(meta) {
+                        let source_ip = parsed.get("source_ip").and_then(|v| v.as_str());
+                        let allowed = rule.get("patterns")?.as_array()?;
+                        if let Some(ip) = source_ip {
+                            let is_allowed = allowed.iter().any(|p| {
+                                p.as_str().map_or(false, |pat| ip.contains(pat))
+                            });
+                            if !is_allowed {
+                                return Some(RuleResult {
+                                    immediate_deny: true,
+                                    message: format!("Source IP {} not in allowlist", ip),
+                                    risk_level: crate::models::RiskLevel::High,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
             _ => {}
         }
 

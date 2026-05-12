@@ -178,7 +178,10 @@ pub async fn admin_login(
         return Err(AppError::Unauthorized("Invalid password".into()));
     }
 
-    let cookie_value = format!("deko_admin={}; Path=/; HttpOnly; SameSite=Strict", req.password);
+    let cookie_value = format!(
+        "deko_admin={}; Path=/; HttpOnly; SameSite=Strict; Max-Age=28800",
+        req.password
+    );
     let mut headers = axum::http::HeaderMap::new();
     headers.insert(SET_COOKIE, HeaderValue::from_str(&cookie_value).map_err(|_| AppError::Internal)?);
 
