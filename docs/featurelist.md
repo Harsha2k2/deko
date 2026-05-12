@@ -453,9 +453,9 @@
 | F299 | Docker Compose | [x] | App + SQLite volume |
 | F300 | .dockerignore | [x] | Exclude dev files |
 | F301 | Docker build test | [x] | Works locally |
-| F302 | Docker image size optimization | [ ] | Target < 50MB |
-| F303 | Docker healthcheck | [ ] | HEALTHCHECK instruction |
-| F304 | Docker non-root user | [ ] | Security best practice |
+| F302 | Docker image size optimization | [x] | Target < 50MB |
+| F303 | Docker healthcheck | [x] | HEALTHCHECK instruction |
+| F304 | Docker non-root user | [x] | Security best practice |
 
 ### 11.2 Orchestration
 | ID | Feature | Status | Notes |
