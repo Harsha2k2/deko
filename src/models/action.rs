@@ -19,6 +19,7 @@ pub struct Action {
     pub updated_at: chrono::DateTime<chrono::Utc>,
     pub idempotency_key: Option<String>,
     pub priority: i32,
+    pub execute_at: Option<String>,
 }
 
 #[allow(dead_code)]

@@ -31,6 +31,7 @@ pub struct CreateActionRequest {
     pub target_url: Option<String>,
     pub target_method: Option<String>,
     pub idempotency_key: Option<String>,
+    pub execute_at: Option<String>,
     pub priority: Option<i32>,
 }
 
@@ -145,7 +146,7 @@ pub async fn create_action(
     let metadata_str = req.metadata.as_ref().map(|m| m.to_string());
 
     sqlx::query(
-        "INSERT INTO actions (id, agent_id, intent, payload, screenshot_base64, metadata, target_url, target_method, status, idempotency_key, priority) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO actions (id, agent_id, intent, payload, screenshot_base64, metadata, target_url, target_method, status, idempotency_key, priority, execute_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&id)
     .bind(&agent.id)
@@ -158,6 +159,7 @@ pub async fn create_action(
     .bind(ActionStatus::Pending)
     .bind(&req.idempotency_key)
     .bind(req.priority.unwrap_or(5))
+    .bind(&req.execute_at)
     .execute(&pool)
     .await
     .map_err(AppError::Database)?;
@@ -204,7 +206,7 @@ pub async fn get_action(
     Path(id): Path<String>,
 ) -> Result<Json<ActionDetailResponse>> {
     let action = sqlx::query_as::<_, Action>(
-        "SELECT id, agent_id, intent, payload, screenshot_base64, metadata, status, target_url, target_method, created_at, updated_at, idempotency_key, priority FROM actions WHERE id = ?",
+        "SELECT id, agent_id, intent, payload, screenshot_base64, metadata, status, target_url, target_method, created_at, updated_at, idempotency_key, priority, execute_at FROM actions WHERE id = ?",
     )
     .bind(&id)
     .fetch_optional(&pool)
@@ -269,7 +271,7 @@ pub async fn get_action_status(
     use axum::http::HeaderValue;
 
     let action = sqlx::query_as::<_, Action>(
-        "SELECT id, agent_id, intent, payload, screenshot_base64, metadata, status, target_url, target_method, created_at, updated_at, idempotency_key, priority FROM actions WHERE id = ?",
+        "SELECT id, agent_id, intent, payload, screenshot_base64, metadata, status, target_url, target_method, created_at, updated_at, idempotency_key, priority, execute_at FROM actions WHERE id = ?",
     )
     .bind(&id)
     .fetch_optional(&pool)
@@ -338,7 +340,7 @@ pub async fn batch_create_actions(
         let sanitized_intent = sanitize_input(&action_req.intent, 500);
 
         sqlx::query(
-            "INSERT INTO actions (id, agent_id, intent, payload, screenshot_base64, metadata, target_url, target_method, status, idempotency_key, priority) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO actions (id, agent_id, intent, payload, screenshot_base64, metadata, target_url, target_method, status, idempotency_key, priority, execute_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(&agent.id)
@@ -398,7 +400,7 @@ pub async fn list_actions(
     let limit = params.limit.unwrap_or(50).min(100);
     let offset = params.offset.unwrap_or(0);
 
-    let mut query = "SELECT id, agent_id, intent, payload, screenshot_base64, metadata, status, target_url, target_method, created_at, updated_at, idempotency_key, priority FROM actions WHERE agent_id = ?".to_string();
+    let mut query = "SELECT id, agent_id, intent, payload, screenshot_base64, metadata, status, target_url, target_method, created_at, updated_at, idempotency_key, priority, execute_at FROM actions WHERE agent_id = ?".to_string();
     let mut count_query = "SELECT COUNT(*) FROM actions WHERE agent_id = ?".to_string();
     let mut binds: Vec<&str> = vec![&agent.id];
 
@@ -467,7 +469,7 @@ pub async fn forward_action(
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>> {
     let action = sqlx::query_as::<_, Action>(
-        "SELECT id, agent_id, intent, payload, screenshot_base64, metadata, status, target_url, target_method, created_at, updated_at, idempotency_key, priority FROM actions WHERE id = ?",
+        "SELECT id, agent_id, intent, payload, screenshot_base64, metadata, status, target_url, target_method, created_at, updated_at, idempotency_key, priority, execute_at FROM actions WHERE id = ?",
     )
     .bind(&id)
     .fetch_optional(&pool)

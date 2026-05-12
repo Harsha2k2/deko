@@ -68,7 +68,7 @@ impl ActionProcessor {
 
     async fn process_pending(&self) -> anyhow::Result<()> {
         let sql = format!(
-            "SELECT id FROM actions WHERE status = 'pending' ORDER BY priority ASC, created_at ASC LIMIT {}",
+            "SELECT id FROM actions WHERE status = 'pending' AND (execute_at IS NULL OR execute_at <= CURRENT_TIMESTAMP) ORDER BY priority ASC, created_at ASC LIMIT {}",
             self.batch_size
         );
         let pending_actions: Vec<String> = sqlx::query_scalar(&sql)
