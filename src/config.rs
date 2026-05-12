@@ -275,6 +275,22 @@ impl Config {
             bail!("DEKO_API_KEY_SECRET must be at least 16 characters");
         }
 
+        if self.admin_password.len() < 8 {
+            bail!("DEKO_ADMIN_PASSWORD must be at least 8 characters");
+        }
+
+        if let Some(ref key) = self.openai_api_key {
+            if key.len() < 5 {
+                bail!("OPENAI_API_KEY appears to be too short (min 5 characters)");
+            }
+        }
+
+        if let Some(ref key) = self.gemini_api_key {
+            if key.len() < 5 {
+                bail!("GEMINI_API_KEY appears to be too short (min 5 characters)");
+            }
+        }
+
         if self.env == Environment::Prod && self.allowed_origins.iter().any(|o| o == "*") {
             bail!("Wildcard CORS origin '*' is not allowed in production. Set DEKO_ALLOWED_ORIGINS to specific origins.");
         }

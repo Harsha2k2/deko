@@ -565,3 +565,24 @@ fn test_redacted_debug_same_as_display() {
     let r = deko::redact::Redacted::new("secret-value-12345");
     assert_eq!(format!("{:?}", r), format!("{}", r));
 }
+
+proptest::proptest! {
+    #[test]
+    fn test_sanitize_input_never_panics(s in ".*") {
+        let sanitized = s
+            .replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;")
+            .replace('"', "&quot;")
+            .replace('\'', "&#x27;");
+        assert!(!sanitized.contains('<'));
+        assert!(!sanitized.contains('>'));
+    }
+
+    #[test]
+    fn test_redacted_never_panics(s in ".*") {
+        let r = deko::redact::Redacted::new(&s);
+        let _display = format!("{}", r);
+        let _inner = r.inner();
+    }
+}

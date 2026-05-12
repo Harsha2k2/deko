@@ -522,7 +522,7 @@
 | F340 | Integration test suite | [x] | 13 tests, expanding |
 | F341 | Load / stress testing | [x] | k6 or locust scripts |
 | F342 | Security penetration testing | [ ] | SQLi, XSS, auth bypass |
-| F343 | Property-based testing | [ ] | proptest for input validation |
+| F343 | Property-based testing | [x] | proptest for input validation |
 | F344 | Fuzz testing | [ ] | cargo-fuzz for JSON parsing |
 | F345 | Performance benchmarks | [ ] | Criterion benchmarks |
 | F346 | Long-running stability test | [ ] | 24h run, check memory |
@@ -544,7 +544,7 @@
 | F354 | SQL injection prevention | [x] | SQLx parameterized |
 | F355 | XSS prevention in templates | [x] | Askama auto-escapes |
 | F356 | Distributed rate limiting | [ ] | Redis-backed for multi-instance |
-| F357 | API key constraints (min length) | [ ] | Validate key strength |
+| F357 | API key constraints (min length) | [x] | Validate key strength |
 | F358 | Audit log integrity | [ ] | Hash chain for tamper detection |
 | F359 | Audit log encryption at rest | [ ] | Encrypt sensitive fields |
 

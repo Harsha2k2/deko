@@ -26,10 +26,11 @@ impl Redacted {
 
 impl fmt::Display for Redacted {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let visible: String = self.0.chars().take(6).collect();
         if self.0.len() <= 6 {
             write!(f, "***")
         } else {
-            write!(f, "{}...", &self.0[..6])
+            write!(f, "{}...", visible)
         }
     }
 }
