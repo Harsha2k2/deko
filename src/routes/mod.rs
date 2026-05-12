@@ -89,6 +89,7 @@ pub fn create_router(config: &Config, pool: DbPool, pool_set: Arc<DbPoolSet>) ->
         .route("/action/{id}/status", axum::routing::get(actions::get_action_status))
         .route("/action/{id}/forward", axum::routing::post(actions::forward_action))
         .route("/actions", axum::routing::get(actions::list_actions))
+        .route("/actions/batch", axum::routing::post(actions::batch_create_actions))
         .layer(axum::middleware::from_fn_with_state(
             auth_state.clone(),
             crate::middleware::auth::auth_middleware,

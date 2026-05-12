@@ -318,11 +318,72 @@ pub async fn get_action_status(
     Ok(response)
 }
 
+#[derive(Debug, Deserialize)]
+pub struct BatchActionRequest {
+    pub actions: Vec<CreateActionRequest>,
+}
+
+pub async fn batch_create_actions(
+    State(pool): State<crate::db::DbPool>,
+    axum::Extension(agent): axum::Extension<Agent>,
+    Json(req): Json<BatchActionRequest>,
+) -> Result<(StatusCode, Json<Vec<serde_json::Value>>)> {
+    if req.actions.len() > 50 {
+        return Err(AppError::BadRequest("Maximum 50 actions per batch".into()));
+    }
+
+    let mut results = Vec::new();
+    for action_req in req.actions {
+        let id = uuid::Uuid::new_v4().to_string();
+        let sanitized_intent = sanitize_input(&action_req.intent, 500);
+
+        sqlx::query(
+            "INSERT INTO actions (id, agent_id, intent, payload, screenshot_base64, metadata, target_url, target_method, status, idempotency_key, priority) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(&id)
+        .bind(&agent.id)
+        .bind(&sanitized_intent)
+        .bind(&action_req.payload)
+        .bind(&action_req.screenshot_base64)
+        .bind(&action_req.metadata.as_ref().map(|m| m.to_string()))
+        .bind(&action_req.target_url)
+        .bind(&action_req.target_method)
+        .bind(ActionStatus::Pending)
+        .bind(&action_req.idempotency_key)
+        .bind(action_req.priority.unwrap_or(5))
+        .execute(&pool)
+        .await
+        .map_err(AppError::Database)?;
+
+        sqlx::query(
+            "INSERT INTO audit_log (id, action_id, event_type, details) VALUES (?, ?, ?, ?)",
+        )
+        .bind(uuid::Uuid::new_v4().to_string())
+        .bind(&id)
+        .bind("action_created")
+        .bind(serde_json::json!({"agent_id": agent.id, "intent": sanitized_intent, "batch": true}))
+        .execute(&pool)
+        .await
+        .ok();
+
+        results.push(serde_json::json!({
+            "id": id,
+            "status": "pending",
+            "intent": sanitized_intent,
+        }));
+    }
+
+    Ok((StatusCode::CREATED, Json(results)))
+}
+
 #[utoipa::path(
     get,
     path = "/actions",
+    tag = "actions",
     params(
-        ListActionsQuery
+        ("status" = Option<String>, Query, description = "Filter by status"),
+        ("limit" = Option<i32>, Query, description = "Max results"),
+        ("offset" = Option<i32>, Query, description = "Offset for pagination"),
     ),
     responses(
         (status = 200, description = "List actions", body = ListActionsResponse),

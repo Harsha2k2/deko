@@ -148,7 +148,7 @@
 | F086 | Filter: by date range | [x] | ?from=...&to=... |
 | F087 | Action route unit tests | [x] | Request parsing, validation |
 | F088 | Action route integration tests | [x] | Full request/response cycle |
-| F089 | Batch action submission | [ ] | Multiple actions in one request |
+| F089 | Batch action submission | [x] | Multiple actions in one request |
 | F090 | Action deduplication | [x] | idempotency_key prevents duplicates |
 | F091 | Scheduled/delayed actions | [ ] | `execute_at` field for future execution |
 | F092 | Action priority queuing | [x] | Priority levels for processing order |
