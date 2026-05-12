@@ -460,8 +460,8 @@
 ### 11.2 Orchestration
 | ID | Feature | Status | Notes |
 |----|---------|--------|-------|
-| F305 | Kubernetes deployment manifest | [ ] | Deployment + Service + ConfigMap |
-| F306 | Helm chart | [ ] | Parameterized k8s deployment |
+| F305 | Kubernetes deployment manifest | [x] | Deployment + Service + ConfigMap |
+| F306 | Helm chart | [x] | Parameterized k8s deployment |
 | F307 | Horizontal pod autoscaling | [ ] | HPA based on metrics |
 | F308 | Init container for migrations | [ ] | Run migrations before app starts |
 | F309 | PodDisruptionBudget | [ ] | HA configuration |
@@ -472,7 +472,7 @@
 | ID | Feature | Status | Notes |
 |----|---------|--------|-------|
 | F312 | GitHub Actions CI | [x] | Test, lint, build, smoke |
-| F313 | Automated releases | [ ] | Release please or similar |
+| F313 | Automated releases | [x] | Release please or similar |
 | F314 | Container registry publish | [ ] | Push to GHCR or Docker Hub |
 | F315 | Staging deployment | [ ] | Auto-deploy to staging |
 | F316 | Integration test environment | [ ] | Ephemeral test env |

@@ -1,0 +1,75 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: deko
+  labels:
+    app: deko
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: deko
+  template:
+    metadata:
+      labels:
+        app: deko
+    spec:
+      containers:
+      - name: deko
+        image: ghcr.io/harsha2k2/deko:latest
+        ports:
+        - containerPort: 8000
+        env:
+        - name: DEKO_ENV
+          value: "prod"
+        - name: DEKO_DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: deko-secrets
+              key: database-url
+        - name: DEKO_ADMIN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: deko-secrets
+              key: admin-password
+        - name: DEKO_API_KEY_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: deko-secrets
+              key: api-key-secret
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "250m"
+          limits:
+            memory: "128Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health/live
+            port: 8000
+        readinessProbe:
+          httpGet:
+            path: /health/ready
+            port: 8000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: deko
+spec:
+  selector:
+    app: deko
+  ports:
+  - port: 8000
+    targetPort: 8000
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: deko-config
+data:
+  DEKO_ENV: "prod"
+  DEKO_RATE_LIMIT_PER_MINUTE: "60"
+  OPENAI_TIMEOUT_SECS: "30"
+  GEMINI_TIMEOUT_SECS: "30"

@@ -1,0 +1,19 @@
+replicaCount: 2
+image:
+  repository: ghcr.io/harsha2k2/deko
+  tag: latest
+  pullPolicy: Always
+env:
+  DEKO_ENV: prod
+  DEKO_RATE_LIMIT_PER_MINUTE: 60
+secrets:
+  databaseUrl: sqlite:///app/data/deko.db
+  adminPassword: changeme
+  apiKeySecret: change-this-to-random-string
+resources:
+  requests:
+    memory: 64Mi
+    cpu: 250m
+  limits:
+    memory: 128Mi
+    cpu: 500m
