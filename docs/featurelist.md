@@ -388,7 +388,7 @@
 | F258 | Alerting rules | [ ] | Prometheus alert rules |
 | F259 | Distributed tracing | [ ] | OpenTelemetry integration |
 | F260 | Log retention policies | [ ] | Rotation, archival |
-| F261 | Structured error logging | [ ] | Error + context in JSON |
+| F261 | Structured error logging | [x] | Error + context in JSON |
 | F262 | Audit log search | [ ] | Full-text search on audit events |
 | F263 | Metrics histogram buckets | [ ] | Latency distribution |
 | F264 | Per-agent metrics | [ ] | Actions, denials per agent |

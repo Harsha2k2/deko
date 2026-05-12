@@ -8,7 +8,11 @@ static FIRST_INTERNAL: AtomicBool = AtomicBool::new(true);
 fn log_first_backtrace() {
     if FIRST_INTERNAL.swap(false, Ordering::Relaxed) {
         let bt = std::backtrace::Backtrace::force_capture();
-        error!("First internal error backtrace:\n{}", bt);
+        error!(
+            error.type = "internal",
+            error.backtrace = %bt,
+            "First internal error occurred"
+        );
     }
 }
 
@@ -84,8 +88,12 @@ impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let (status, message) = match &self {
             AppError::Database(e) => {
-                error!("Database error: {:?}", e);
-                (StatusCode::INTERNAL_SERVER_ERROR, sanitize_for_prod("Database error occurred"))
+                error!(
+                    error.type = "database",
+                    error.message = %e,
+                    "Database error"
+                );
+                (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
             }
             AppError::NotFound(msg) => (StatusCode::NOT_FOUND, msg.clone()),
             AppError::Unauthorized(msg) => (StatusCode::UNAUTHORIZED, msg.clone()),
