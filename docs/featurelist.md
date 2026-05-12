@@ -175,9 +175,9 @@
 | F105 | HTTP forwarding via reqwest | [x] | Supports method, headers, body |
 | F106 | Response capture | [x] | Response status + body logged |
 | F107 | Forwarding tests | [x] | All three paths: approve, deny, escalate |
-| F108 | Custom forwarding headers | [ ] | Add X-Deko headers to forwarded requests |
+| F108 | Custom forwarding headers | [x] | Add X-Deko headers to forwarded requests |
 | F109 | Response transformation | [ ] | Modify response before returning to agent |
-| F110 | Forward retry on failure | [ ] | Retry forwarding if target is unavailable |
+| F110 | Forward retry on failure | [x] | Retry forwarding if target is unavailable |
 | F111 | Forward timeout | [ ] | Configurable timeout for forwarded requests |
 | F112 | Idempotent forwarding | [ ] | Prevent double execution with idempotency key |
 

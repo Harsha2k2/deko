@@ -404,29 +404,62 @@ pub async fn forward_action(
                 .map_err(AppError::Database)?;
 
             let response = if let (Some(url), Some(method)) = (&action.target_url, &action.target_method) {
-                let client = reqwest::Client::new();
-                let resp = match method.to_uppercase().as_str() {
-                    "POST" => client.post(url).body(action.payload.clone().unwrap_or_default()).send().await,
-                    "DELETE" => client.delete(url).send().await,
-                    "PUT" => client.put(url).body(action.payload.clone().unwrap_or_default()).send().await,
-                    "PATCH" => client.patch(url).body(action.payload.clone().unwrap_or_default()).send().await,
-                    _ => client.get(url).send().await,
-                };
+                let client = reqwest::Client::builder()
+                    .timeout(std::time::Duration::from_secs(10))
+                    .build()
+                    .map_err(|_| AppError::Internal)?;
 
-                match resp {
-                    Ok(r) => {
-                        let status = r.status().as_u16();
-                        let body = r.text().await.unwrap_or_default();
-                        serde_json::json!({
-                            "forwarded": true,
-                            "target_status": status,
-                            "target_response": body,
-                        })
+                let body = action.payload.clone().unwrap_or_default();
+                let decision_str = format!("{}", verdict.decision);
+
+                let mut last_error = None;
+                let mut success = None;
+
+                for attempt in 1..=3 {
+                    let req_builder = match method.to_uppercase().as_str() {
+                        "POST" => client.post(url).body(body.clone()),
+                        "DELETE" => client.delete(url),
+                        "PUT" => client.put(url).body(body.clone()),
+                        "PATCH" => client.patch(url).body(body.clone()),
+                        _ => client.get(url),
                     }
-                    Err(e) => serde_json::json!({
+                    .header("X-Deko-Action-Id", &id)
+                    .header("X-Deko-Agent-Id", &agent.id)
+                    .header("X-Deko-Verdict", &decision_str);
+
+                    match req_builder.send().await {
+                        Ok(r) if r.status().is_success() => {
+                            let status = r.status().as_u16();
+                            let resp_body = r.text().await.unwrap_or_default();
+                            success = Some((status, resp_body, attempt));
+                            break;
+                        }
+                        Ok(r) => {
+                            last_error = Some(format!("HTTP {}", r.status()));
+                        }
+                        Err(e) => {
+                            last_error = Some(e.to_string());
+                        }
+                    }
+
+                    if attempt < 3 {
+                        tokio::time::sleep(std::time::Duration::from_millis(500 * attempt as u64)).await;
+                    }
+                }
+
+                if let Some((status, resp_body, attempts)) = success {
+                    serde_json::json!({
                         "forwarded": true,
-                        "forward_error": e.to_string(),
-                    }),
+                        "target_status": status,
+                        "target_response": resp_body,
+                        "forward_attempts": attempts,
+                    })
+                } else {
+                    serde_json::json!({
+                        "forwarded": true,
+                        "forward_error": last_error.unwrap_or_else(|| "Max retries exceeded".to_string()),
+                        "forward_attempts": 3,
+                    })
                 }
             } else {
                 serde_json::json!({ "forwarded": true, "note": "No target URL configured" })
