@@ -17,6 +17,7 @@ pub struct Action {
     pub target_method: Option<String>,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
+    pub idempotency_key: Option<String>,
 }
 
 #[allow(dead_code)]
@@ -28,6 +29,7 @@ pub struct CreateActionRequest {
     pub metadata: Option<serde_json::Value>,
     pub target_url: Option<String>,
     pub target_method: Option<String>,
+    pub idempotency_key: Option<String>,
 }
 
 #[allow(dead_code)]

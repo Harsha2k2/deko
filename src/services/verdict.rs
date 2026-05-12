@@ -62,7 +62,7 @@ impl VerdictService {
 
     pub async fn process_action(&self, action_id: &str) -> Result<()> {
         let action = sqlx::query_as::<_, crate::models::Action>(
-            "SELECT id, agent_id, intent, payload, screenshot_base64, metadata, status, target_url, target_method, created_at, updated_at FROM actions WHERE id = ?",
+            "SELECT id, agent_id, intent, payload, screenshot_base64, metadata, status, target_url, target_method, created_at, updated_at, idempotency_key FROM actions WHERE id = ?",
         )
         .bind(action_id)
         .fetch_optional(&self.pool)

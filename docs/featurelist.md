@@ -149,7 +149,7 @@
 | F087 | Action route unit tests | [x] | Request parsing, validation |
 | F088 | Action route integration tests | [x] | Full request/response cycle |
 | F089 | Batch action submission | [ ] | Multiple actions in one request |
-| F090 | Action deduplication | [ ] | idempotency_key prevents duplicates |
+| F090 | Action deduplication | [x] | idempotency_key prevents duplicates |
 | F091 | Scheduled/delayed actions | [ ] | `execute_at` field for future execution |
 | F092 | Action priority queuing | [ ] | Priority levels for processing order |
 | F093 | Action TTL / expiration | [x] | Auto-deny pending actions older than X time |

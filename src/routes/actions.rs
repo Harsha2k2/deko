@@ -30,6 +30,7 @@ pub struct CreateActionRequest {
     pub metadata: Option<serde_json::Value>,
     pub target_url: Option<String>,
     pub target_method: Option<String>,
+    pub idempotency_key: Option<String>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -108,12 +109,42 @@ pub async fn create_action(
         }
     }
 
+    if let Some(ref ik) = req.idempotency_key {
+        let existing: Option<(String, String)> = sqlx::query_as(
+            "SELECT id, status FROM actions WHERE agent_id = ? AND idempotency_key = ?",
+        )
+        .bind(&agent.id)
+        .bind(ik)
+        .fetch_optional(&pool)
+        .await
+        .map_err(AppError::Database)?;
+
+        if let Some((existing_id, existing_status)) = existing {
+            let status = match existing_status.as_str() {
+                "pending" => ActionStatus::Pending,
+                "processing" => ActionStatus::Processing,
+                "approved" => ActionStatus::Approved,
+                "denied" => ActionStatus::Denied,
+                "escalated" => ActionStatus::Escalated,
+                "forwarded" => ActionStatus::Forwarded,
+                _ => ActionStatus::Pending,
+            };
+            return Ok((
+                StatusCode::OK,
+                Json(CreateActionResponse {
+                    id: existing_id,
+                    status,
+                }),
+            ));
+        }
+    }
+
     let id = uuid::Uuid::new_v4().to_string();
 
     let metadata_str = req.metadata.as_ref().map(|m| m.to_string());
 
     sqlx::query(
-        "INSERT INTO actions (id, agent_id, intent, payload, screenshot_base64, metadata, target_url, target_method, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO actions (id, agent_id, intent, payload, screenshot_base64, metadata, target_url, target_method, status, idempotency_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&id)
     .bind(&agent.id)
@@ -124,6 +155,7 @@ pub async fn create_action(
     .bind(&req.target_url)
     .bind(&req.target_method)
     .bind(ActionStatus::Pending)
+    .bind(&req.idempotency_key)
     .execute(&pool)
     .await
     .map_err(AppError::Database)?;
@@ -170,7 +202,7 @@ pub async fn get_action(
     Path(id): Path<String>,
 ) -> Result<Json<ActionDetailResponse>> {
     let action = sqlx::query_as::<_, Action>(
-        "SELECT id, agent_id, intent, payload, screenshot_base64, metadata, status, target_url, target_method, created_at, updated_at FROM actions WHERE id = ?",
+        "SELECT id, agent_id, intent, payload, screenshot_base64, metadata, status, target_url, target_method, created_at, updated_at, idempotency_key FROM actions WHERE id = ?",
     )
     .bind(&id)
     .fetch_optional(&pool)
@@ -235,7 +267,7 @@ pub async fn get_action_status(
     use axum::http::HeaderValue;
 
     let action = sqlx::query_as::<_, Action>(
-        "SELECT id, agent_id, intent, payload, screenshot_base64, metadata, status, target_url, target_method, created_at, updated_at FROM actions WHERE id = ?",
+        "SELECT id, agent_id, intent, payload, screenshot_base64, metadata, status, target_url, target_method, created_at, updated_at, idempotency_key FROM actions WHERE id = ?",
     )
     .bind(&id)
     .fetch_optional(&pool)
@@ -303,7 +335,7 @@ pub async fn list_actions(
     let limit = params.limit.unwrap_or(50).min(100);
     let offset = params.offset.unwrap_or(0);
 
-    let mut query = "SELECT id, agent_id, intent, payload, screenshot_base64, metadata, status, target_url, target_method, created_at, updated_at FROM actions WHERE agent_id = ?".to_string();
+    let mut query = "SELECT id, agent_id, intent, payload, screenshot_base64, metadata, status, target_url, target_method, created_at, updated_at, idempotency_key FROM actions WHERE agent_id = ?".to_string();
     let mut count_query = "SELECT COUNT(*) FROM actions WHERE agent_id = ?".to_string();
     let mut binds: Vec<&str> = vec![&agent.id];
 
@@ -372,7 +404,7 @@ pub async fn forward_action(
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>> {
     let action = sqlx::query_as::<_, Action>(
-        "SELECT id, agent_id, intent, payload, screenshot_base64, metadata, status, target_url, target_method, created_at, updated_at FROM actions WHERE id = ?",
+        "SELECT id, agent_id, intent, payload, screenshot_base64, metadata, status, target_url, target_method, created_at, updated_at, idempotency_key FROM actions WHERE id = ?",
     )
     .bind(&id)
     .fetch_optional(&pool)
