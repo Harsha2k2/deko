@@ -296,3 +296,283 @@ async fn test_test_app_helper() {
     let action_id = app.setup_with_action(&agent_id, "Test intent").await;
     assert!(!action_id.is_empty());
 }
+
+#[tokio::test]
+async fn test_all_health_endpoints() {
+    let pool = setup_test_db().await;
+    let config = test_config();
+    let app = create_router(&config, pool).unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let client = reqwest::Client::new();
+
+    let live = client.get(format!("http://127.0.0.1:{}/health/live", addr.port())).send().await.unwrap();
+    assert_eq!(live.status(), 200);
+
+    let ready = client.get(format!("http://127.0.0.1:{}/health/ready", addr.port())).send().await.unwrap();
+    assert_eq!(ready.status(), 200);
+
+    let health = client.get(format!("http://127.0.0.1:{}/health", addr.port())).send().await.unwrap();
+    assert_eq!(health.status(), 200);
+
+    let body: serde_json::Value = health.json().await.unwrap();
+    assert_eq!(body["status"], "healthy");
+    assert_eq!(body["database"], "healthy");
+}
+
+#[tokio::test]
+async fn test_admin_login_valid_password() {
+    let pool = setup_test_db().await;
+    let config = test_config();
+    let app = create_router(&config, pool).unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .post(format!("http://127.0.0.1:{}/admin/login", addr.port()))
+        .json(&serde_json::json!({"password": "testpassword"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+}
+
+#[tokio::test]
+async fn test_admin_login_invalid_password() {
+    let pool = setup_test_db().await;
+    let config = test_config();
+    let app = create_router(&config, pool).unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .post(format!("http://127.0.0.1:{}/admin/login", addr.port()))
+        .json(&serde_json::json!({"password": "wrongpassword"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 401);
+}
+
+#[tokio::test]
+async fn test_admin_dashboard_requires_auth() {
+    let pool = setup_test_db().await;
+    let config = test_config();
+    let app = create_router(&config, pool).unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .get(format!("http://127.0.0.1:{}/admin", addr.port()))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 403);
+}
+
+#[tokio::test]
+async fn test_admin_dashboard_with_valid_password() {
+    let pool = setup_test_db().await;
+    let config = test_config();
+    let app = create_router(&config, pool).unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .get(format!("http://127.0.0.1:{}/admin", addr.port()))
+        .header("X-Admin-Password", "testpassword")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+}
+
+#[tokio::test]
+async fn test_action_create_via_http_with_valid_key() {
+    let pool = setup_test_db().await;
+    let config = test_config();
+    let app = create_router(&config, pool.clone()).unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let client = reqwest::Client::new();
+
+    let (agent_id, api_key) = TestFixtures::create_agent(&pool, "http-test-agent").await.unwrap();
+
+    let resp = client
+        .post(format!("http://127.0.0.1:{}/action", addr.port()))
+        .header("X-API-Key", &api_key)
+        .json(&serde_json::json!({
+            "intent": "Buy 10 shares of AAPL",
+            "payload": "{\"symbol\": \"AAPL\", \"quantity\": 10}",
+            "agent_id": agent_id,
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 201);
+
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(body["status"], "pending");
+    assert!(body["id"].as_str().unwrap().len() > 0);
+}
+
+#[tokio::test]
+async fn test_action_create_via_http_without_key_returns_401() {
+    let pool = setup_test_db().await;
+    let config = test_config();
+    let app = create_router(&config, pool).unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .post(format!("http://127.0.0.1:{}/action", addr.port()))
+        .json(&serde_json::json!({"intent": "Test"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 401);
+}
+
+#[tokio::test]
+async fn test_action_status_returns_pending_initially() {
+    let pool = setup_test_db().await;
+    let config = test_config();
+    let app = create_router(&config, pool.clone()).unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let client = reqwest::Client::new();
+
+    let (agent_id, api_key) = TestFixtures::create_agent(&pool, "status-test-agent").await.unwrap();
+    let action_id = TestFixtures::create_action(&pool, &agent_id, "Test action").await.unwrap();
+
+    let resp = client
+        .get(format!("http://127.0.0.1:{}/action/{}/status", addr.port(), action_id))
+        .header("X-API-Key", &api_key)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(body["action_id"], action_id);
+    assert_eq!(body["status"], "pending");
+}
+
+#[tokio::test]
+async fn test_action_filter_by_status() {
+    let pool = setup_test_db().await;
+    let config = test_config();
+    let app = create_router(&config, pool.clone()).unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let client = reqwest::Client::new();
+
+    let (agent_id, api_key) = TestFixtures::create_agent(&pool, "filter-test-agent").await.unwrap();
+    TestFixtures::create_action(&pool, &agent_id, "First action").await.unwrap();
+    TestFixtures::create_action(&pool, &agent_id, "Second action").await.unwrap();
+
+    let resp = client
+        .get(format!("http://127.0.0.1:{}/actions?status=pending", addr.port()))
+        .header("X-API-Key", &api_key)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+}
+
+#[tokio::test]
+async fn test_metrics_endpoint() {
+    let pool = setup_test_db().await;
+    let config = test_config();
+    let app = create_router(&config, pool).unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .get(format!("http://127.0.0.1:{}/metrics", addr.port()))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert!(body.get("actions").is_some());
+    assert!(body.get("llm").is_some());
+}
+
+#[tokio::test]
+async fn test_admin_register_agent_via_http() {
+    let pool = setup_test_db().await;
+    let config = test_config();
+    let app = create_router(&config, pool).unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .post(format!("http://127.0.0.1:{}/admin/agents/register", addr.port()))
+        .header("X-Admin-Password", "testpassword")
+        .json(&serde_json::json!({"name": "http-registered-agent"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 201);
+
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(body["name"], "http-registered-agent");
+    assert!(body["api_key"].as_str().unwrap().len() > 0);
+}
+
+#[tokio::test]
+async fn test_swagger_docs_served() {
+    let pool = setup_test_db().await;
+    let config = test_config();
+    let app = create_router(&config, pool).unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .get(format!("http://127.0.0.1:{}/docs/", addr.port()))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    let openapi = client
+        .get(format!("http://127.0.0.1:{}/api-docs/openapi.json", addr.port()))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(openapi.status(), 200);
+}

@@ -10,6 +10,8 @@ use tower_http::trace::TraceLayer;
 use tracing::info;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
+use axum::http::StatusCode;
+use axum::response::IntoResponse;
 
 use crate::config::Config;
 use crate::services::metrics::{MetricsCollector, RateLimiter};
@@ -97,8 +99,6 @@ pub fn create_router(config: &Config, pool: SqlitePool) -> anyhow::Result<Router
 
     let admin_routes = Router::new()
         .route("/admin", axum::routing::get(admin::dashboard))
-        .route("/admin/login", axum::routing::get(admin::admin_login_page).post(admin::admin_login))
-        .route("/admin/logout", axum::routing::post(admin::admin_logout))
         .route("/admin/actions", axum::routing::get(admin::list_admin_actions))
         .route("/admin/actions/{id}", axum::routing::get(admin::get_admin_action_detail))
         .route("/admin/actions/{id}/override", axum::routing::post(admin::override_action))
@@ -118,6 +118,8 @@ pub fn create_router(config: &Config, pool: SqlitePool) -> anyhow::Result<Router
         .route("/health/ready", axum::routing::get(health::readiness))
         .route("/health/live", axum::routing::get(health::liveness))
         .route("/metrics", axum::routing::get(metrics_endpoint))
+        .route("/admin/login", axum::routing::get(admin::admin_login_page).post(admin::admin_login))
+        .route("/admin/logout", axum::routing::post(admin::admin_logout))
         .merge(admin_routes)
         .merge(protected_routes)
         .merge(SwaggerUi::new("/docs").url("/api-docs/openapi.json", ApiDoc::openapi()))
@@ -149,7 +151,24 @@ async fn admin_auth_middleware(
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
 
-    let is_admin = !admin_password.is_empty() && auth_header == admin_password;
+    let cookie_password = request
+        .headers()
+        .get("Cookie")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|c| {
+            c.split(';')
+                .find(|part| part.trim().starts_with("deko_admin="))
+                .and_then(|part| part.trim().split_once('='))
+                .map(|(_, value)| value.to_string())
+        })
+        .unwrap_or_default();
+
+    let is_admin = !admin_password.is_empty()
+        && (auth_header == admin_password || cookie_password == admin_password);
+
+    if !is_admin {
+        return (StatusCode::FORBIDDEN, axum::Json(serde_json::json!({"error": "Admin access required"}))).into_response();
+    }
 
     let mut request = request;
     request.extensions_mut().insert(is_admin);
