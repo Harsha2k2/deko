@@ -60,6 +60,61 @@ impl std::fmt::Display for Environment {
     }
 }
 
+pub struct EnvProfile {
+    pub default_model: String,
+    pub openai_model: String,
+    pub gemini_model: String,
+    pub allowed_origins: Vec<String>,
+    pub rate_limit_per_minute: u64,
+    pub max_screenshot_size_mb: usize,
+    pub max_request_body_kb: usize,
+    pub openai_timeout_secs: u64,
+    pub gemini_timeout_secs: u64,
+}
+
+impl Environment {
+    pub fn defaults(&self) -> EnvProfile {
+        match self {
+            Environment::Dev => EnvProfile {
+                default_model: "gemini-2.0-flash".to_string(),
+                openai_model: "gpt-4o".to_string(),
+                gemini_model: "gemini-2.0-flash".to_string(),
+                allowed_origins: vec!["*".to_string()],
+                rate_limit_per_minute: 120,
+                max_screenshot_size_mb: 10,
+                max_request_body_kb: 1024,
+                openai_timeout_secs: 60,
+                gemini_timeout_secs: 60,
+            },
+            Environment::Staging => EnvProfile {
+                default_model: "gemini-2.0-flash".to_string(),
+                openai_model: "gpt-4o".to_string(),
+                gemini_model: "gemini-2.0-flash".to_string(),
+                allowed_origins: vec![
+                    "http://localhost:8000".to_string(),
+                    "http://localhost:3000".to_string(),
+                ],
+                rate_limit_per_minute: 60,
+                max_screenshot_size_mb: 10,
+                max_request_body_kb: 512,
+                openai_timeout_secs: 30,
+                gemini_timeout_secs: 30,
+            },
+            Environment::Prod => EnvProfile {
+                default_model: "gemini-2.0-flash".to_string(),
+                openai_model: "gpt-4o".to_string(),
+                gemini_model: "gemini-2.0-flash".to_string(),
+                allowed_origins: vec![],
+                rate_limit_per_minute: 30,
+                max_screenshot_size_mb: 5,
+                max_request_body_kb: 256,
+                openai_timeout_secs: 15,
+                gemini_timeout_secs: 15,
+            },
+        }
+    }
+}
+
 impl Config {
     pub fn from_env() -> Result<Self> {
         dotenvy::dotenv().ok();
@@ -75,6 +130,8 @@ impl Config {
             _ => Environment::Dev,
         };
 
+        let profile = env.defaults();
+
         let admin_password = std::env::var("DEKO_ADMIN_PASSWORD")
             .map_err(|_| anyhow::anyhow!("DEKO_ADMIN_PASSWORD is required"))?;
 
@@ -89,19 +146,19 @@ impl Config {
         };
 
         let default_model = std::env::var("LLM_DEFAULT_MODEL")
-            .unwrap_or_else(|_| "gemini-2.0-flash".to_string());
+            .unwrap_or_else(|_| profile.default_model);
 
         let openai_api_key = std::env::var("OPENAI_API_KEY").ok();
 
         let openai_model = std::env::var("OPENAI_MODEL")
             .ok()
-            .unwrap_or_else(|| "gpt-4o".to_string());
+            .unwrap_or_else(|| profile.openai_model);
 
         let gemini_api_key = std::env::var("GEMINI_API_KEY").ok();
 
         let gemini_model = std::env::var("GEMINI_MODEL")
             .ok()
-            .unwrap_or_else(|| "gemini-2.0-flash".to_string());
+            .unwrap_or_else(|| profile.gemini_model);
 
         let api_key_secret = std::env::var("DEKO_API_KEY_SECRET")
             .map_err(|_| anyhow::anyhow!("DEKO_API_KEY_SECRET is required"))?;
@@ -109,32 +166,32 @@ impl Config {
         let allowed_origins = std::env::var("DEKO_ALLOWED_ORIGINS")
             .ok()
             .map(|s| s.split(',').map(|s| s.trim().to_string()).collect())
-            .unwrap_or_else(|| vec!["http://localhost:8000".to_string()]);
+            .unwrap_or_else(|| profile.allowed_origins);
 
         let rate_limit_per_minute = std::env::var("DEKO_RATE_LIMIT_PER_MINUTE")
             .ok()
             .and_then(|r| r.parse::<u64>().ok())
-            .unwrap_or(60);
+            .unwrap_or(profile.rate_limit_per_minute);
 
         let max_screenshot_size_mb = std::env::var("DEKO_MAX_SCREENSHOT_SIZE_MB")
             .ok()
             .and_then(|s| s.parse::<usize>().ok())
-            .unwrap_or(10);
+            .unwrap_or(profile.max_screenshot_size_mb);
 
         let max_request_body_kb = std::env::var("DEKO_MAX_REQUEST_BODY_KB")
             .ok()
             .and_then(|s| s.parse::<usize>().ok())
-            .unwrap_or(512);
+            .unwrap_or(profile.max_request_body_kb);
 
         let openai_timeout_secs = std::env::var("OPENAI_TIMEOUT_SECS")
             .ok()
             .and_then(|s| s.parse::<u64>().ok())
-            .unwrap_or(30);
+            .unwrap_or(profile.openai_timeout_secs);
 
         let gemini_timeout_secs = std::env::var("GEMINI_TIMEOUT_SECS")
             .ok()
             .and_then(|s| s.parse::<u64>().ok())
-            .unwrap_or(30);
+            .unwrap_or(profile.gemini_timeout_secs);
 
         let webhook_url = std::env::var("DEKO_WEBHOOK_URL").ok();
 
@@ -171,6 +228,14 @@ impl Config {
 
         if self.api_key_secret.len() < 16 {
             bail!("DEKO_API_KEY_SECRET must be at least 16 characters");
+        }
+
+        if self.env == Environment::Prod && self.allowed_origins.iter().any(|o| o == "*") {
+            bail!("Wildcard CORS origin '*' is not allowed in production. Set DEKO_ALLOWED_ORIGINS to specific origins.");
+        }
+
+        if self.env == Environment::Prod && self.allowed_origins.is_empty() {
+            bail!("DEKO_ALLOWED_ORIGINS must be explicitly set in production. Set at least one allowed origin.");
         }
 
         match self.default_provider {

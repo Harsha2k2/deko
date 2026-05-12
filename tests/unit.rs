@@ -357,6 +357,40 @@ fn test_openapi_doc_generates() {
 }
 
 // F175: Env config tests
+// F014: Per-environment config profiles
+#[test]
+fn test_env_profile_dev() {
+    let profile = Environment::Dev.defaults();
+    assert_eq!(profile.rate_limit_per_minute, 120);
+    assert_eq!(profile.max_screenshot_size_mb, 10);
+    assert_eq!(profile.max_request_body_kb, 1024);
+    assert_eq!(profile.openai_timeout_secs, 60);
+    assert_eq!(profile.gemini_timeout_secs, 60);
+    assert!(profile.allowed_origins.contains(&"*".to_string()));
+}
+
+#[test]
+fn test_env_profile_staging() {
+    let profile = Environment::Staging.defaults();
+    assert_eq!(profile.rate_limit_per_minute, 60);
+    assert_eq!(profile.max_screenshot_size_mb, 10);
+    assert_eq!(profile.max_request_body_kb, 512);
+    assert_eq!(profile.openai_timeout_secs, 30);
+    assert_eq!(profile.gemini_timeout_secs, 30);
+    assert!(!profile.allowed_origins.contains(&"*".to_string()));
+}
+
+#[test]
+fn test_env_profile_prod() {
+    let profile = Environment::Prod.defaults();
+    assert_eq!(profile.rate_limit_per_minute, 30);
+    assert_eq!(profile.max_screenshot_size_mb, 5);
+    assert_eq!(profile.max_request_body_kb, 256);
+    assert_eq!(profile.openai_timeout_secs, 15);
+    assert_eq!(profile.gemini_timeout_secs, 15);
+    assert!(profile.allowed_origins.is_empty());
+}
+
 #[test]
 fn test_config_port_default() {
     let config = Config::from_env().unwrap();
