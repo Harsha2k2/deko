@@ -579,11 +579,11 @@
 ### 14.2 Scaling
 | ID | Feature | Status | Notes |
 |----|---------|--------|-------|
-| F376 | External database (PostgreSQL) | [ ] | Production-ready DB |
-| F377 | Redis integration | [ ] | Caching, rate limiting, queues |
+| F376 |.*| [x] | Production-ready DB |
+| F377 |.*| [x] | Caching, rate limiting, queues |
 | F378 | Horizontal scaling | [ ] | Stateless app nodes |
 | F379 | Message queue for actions | [ ] | RabbitMQ / Redis Streams |
-| F380 | Read replicas for dashboard | [ ] | Separate read-only connections |
+| F380 |.*| [x] | Separate read-only connections |
 | F381 | Caching layer | [ ] | Redis for policy, verdict cache |
 | F382 | Query optimization | [ ] | Indexes, query profiling |
 | F383 | Connection pooling tuning | [ ] | Per-instance pool sizing |

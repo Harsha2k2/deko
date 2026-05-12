@@ -647,3 +647,34 @@ pub async fn export_actions_csv(
 
     Ok(csv)
 }
+
+#[derive(Deserialize)]
+pub struct AuditExportQuery {
+    pub event_type: Option<String>,
+    pub limit: Option<i64>,
+}
+
+pub async fn export_audit_log(
+    State(pool): State<crate::db::DbPool>,
+    Query(params): Query<AuditExportQuery>,
+) -> Result<String> {
+    let limit = params.limit.unwrap_or(1000).min(10000);
+    let mut query = "SELECT id, action_id, event_type, details, created_at FROM audit_log".to_string();
+    if let Some(ref et) = params.event_type {
+        query.push_str(&format!(" WHERE event_type = '{}'", et));
+    }
+    query.push_str(&format!(" ORDER BY created_at DESC LIMIT {}", limit));
+
+    let rows: Vec<(String, Option<String>, String, String, String)> = sqlx::query_as(&query)
+        .fetch_all(&pool)
+        .await
+        .unwrap_or_default();
+
+    let mut csv = "id,action_id,event_type,details,created_at\n".to_string();
+    for row in rows {
+        csv.push_str(&format!("\"{}\",\"{}\",\"{}\",\"{}\",{}\n",
+            row.0, row.1.unwrap_or_default(), row.2, row.3.replace('"', "\"\""), row.4));
+    }
+
+    Ok(csv)
+}
