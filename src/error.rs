@@ -1,6 +1,16 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
+use std::sync::atomic::{AtomicBool, Ordering};
 use tracing::error;
+
+static FIRST_INTERNAL: AtomicBool = AtomicBool::new(true);
+
+fn log_first_backtrace() {
+    if FIRST_INTERNAL.swap(false, Ordering::Relaxed) {
+        let bt = std::backtrace::Backtrace::force_capture();
+        error!("First internal error backtrace:\n{}", bt);
+    }
+}
 
 /// Unified error type for Deko.
 ///
@@ -69,9 +79,18 @@ impl IntoResponse for AppError {
             AppError::Unauthorized(msg) => (StatusCode::UNAUTHORIZED, msg.clone()),
             AppError::Forbidden(msg) => (StatusCode::FORBIDDEN, msg.clone()),
             AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg.clone()),
-            AppError::Internal => (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string()),
-            AppError::OpenAI(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.clone()),
-            AppError::Gemini(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.clone()),
+            AppError::Internal => {
+                log_first_backtrace();
+                (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
+            }
+            AppError::OpenAI(msg) => {
+                log_first_backtrace();
+                (StatusCode::INTERNAL_SERVER_ERROR, msg.clone())
+            }
+            AppError::Gemini(msg) => {
+                log_first_backtrace();
+                (StatusCode::INTERNAL_SERVER_ERROR, msg.clone())
+            }
             AppError::Validation(msg) => (StatusCode::UNPROCESSABLE_ENTITY, msg.clone()),
             AppError::RateLimited => (StatusCode::TOO_MANY_REQUESTS, "Rate limited".to_string()),
             AppError::Locked(msg) => (StatusCode::LOCKED, msg.clone()),

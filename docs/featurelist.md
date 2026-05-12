@@ -86,7 +86,7 @@
 | F044 | IntoResponse for AppError | [x] | Maps to correct HTTP status + JSON body |
 | F045 | Result alias type | [x] | type Result<T> = std::result::Result<T, AppError> |
 | F046 | Error detail in responses | [x] | {"error": "message"} format |
-| F047 | Stack trace on internal errors | [ ] | Color-eyre or backtrace integration |
+| F047 | Stack trace on internal errors | [x] | Color-eyre or backtrace integration |
 | F048 | Error rate metrics | [ ] | Count errors by type for alerting |
 | F049 | User-friendly error messages | [ ] | Avoid leaking internal details in prod |
 
