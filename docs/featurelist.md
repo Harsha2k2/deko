@@ -423,20 +423,20 @@
 | F281 | CI: Docker build | [x] | Multi-stage build |
 | F282 | CI: smoke test | [x] | Start and health check |
 | F283 | CI: dependency audit | [x] | cargo-audit |
-| F284 | CI: vulnerability scanning | [ ] | Trivy or similar |
-| F285 | CI: coverage reporting | [ ] | tarpaulin or llvm-cov |
+| F284 | CI: vulnerability scanning | [x] | Trivy or similar |
+| F285 | CI: coverage reporting | [x] | tarpaulin or llvm-cov |
 | F286 | CI: fuzz testing | [ ] | cargo-fuzz for input parsing |
 | F287 | CI: leak checking | [ ] | cargo-leak or similar |
 
 ### 10.3 SDK & Examples
 | ID | Feature | Status | Notes |
 |----|---------|--------|-------|
-| F288 | Python SDK | [ ] | Client library for agents |
+| F288 | Python SDK | [x] | Client library for agents |
 | F289 | Node.js SDK | [ ] | Client library for agents |
-| F290 | Example: LangChain integration | [ ] | Callback handler |
-| F291 | Example: AutoGen integration | [ ] | Tool/plugin |
+| F290 | Example: LangChain integration | [x] | Callback handler |
+| F291 | Example: AutoGen integration | [x] | Tool/plugin |
 | F292 | Example: CrewAI integration | [ ] | Tool/plugin |
-| F293 | Example: trading bot | [ ] | Real demo scenario |
+| F293 | Example: trading bot | [x] | Real demo scenario |
 | F294 | Example: DevOps agent | [ ] | Kubernetes management |
 | F295 | Example: customer support | [ ] | Ticket system actions |
 | F296 | Example: code review agent | [ ] | PR management actions |
