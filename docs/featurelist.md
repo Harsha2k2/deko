@@ -201,8 +201,8 @@
 | F123 | Soft delete (active flag) | [x] | Policies set inactive, not deleted |
 | F124 | Policy engine unit tests | [x] | Each rule type tested |
 | F125 | Policy engine integration tests | [x] | Policy matching with real DB |
-| F126 | AND/OR rule composition | [ ] | Combine rules with logical operators |
-| F127 | Rule priority/ordering | [ ] | First matching rule wins |
+| F126 | AND/OR rule composition | [x] | Combine rules with logical operators |
+| F127 | Rule priority/ordering | [x] | First matching rule wins |
 | F128 | Policy dry-run mode | [ ] | Log what would be denied without blocking |
 | F129 | Policy versioning | [ ] | Track changes to policy rules |
 | F130 | Policy hit statistics | [ ] | Count how often each policy triggers |

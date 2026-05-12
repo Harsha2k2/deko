@@ -245,6 +245,51 @@ impl VerdictService {
     fn evaluate_rule(&self, rule: &serde_json::Value, action: &crate::models::Action) -> Option<RuleResult> {
         let rule_type = rule.get("type")?.as_str()?;
 
+        let priority = rule.get("priority").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+
+        match rule_type {
+            "and" | "or" => self.evaluate_composite_rule(rule, action, rule_type, priority),
+            _ => self.evaluate_simple_rule(rule, action, rule_type, priority),
+        }
+    }
+
+    fn evaluate_composite_rule(&self, rule: &serde_json::Value, action: &crate::models::Action, operator: &str, _priority: i32) -> Option<RuleResult> {
+        let rules = rule.get("rules")?.as_array()?;
+        let is_and = operator == "and";
+
+        let mut results: Vec<RuleResult> = Vec::new();
+        for sub_rule in rules {
+            if let Some(result) = self.evaluate_rule(sub_rule, action) {
+                if is_and {
+                    results.push(result);
+                } else {
+                    return Some(result);
+                }
+            } else if is_and {
+                return None;
+            }
+        }
+
+        if is_and && !results.is_empty() {
+            Some(RuleResult {
+                immediate_deny: results.iter().any(|r| r.immediate_deny),
+                message: results.iter().map(|r| r.message.as_str()).collect::<Vec<_>>().join("; "),
+                risk_level: if results.iter().any(|r| r.risk_level == crate::models::RiskLevel::Critical) {
+                    crate::models::RiskLevel::Critical
+                } else if results.iter().any(|r| r.risk_level == crate::models::RiskLevel::High) {
+                    crate::models::RiskLevel::High
+                } else if results.iter().any(|r| r.risk_level == crate::models::RiskLevel::Medium) {
+                    crate::models::RiskLevel::Medium
+                } else {
+                    crate::models::RiskLevel::Low
+                },
+            })
+        } else {
+            None
+        }
+    }
+
+    fn evaluate_simple_rule(&self, rule: &serde_json::Value, action: &crate::models::Action, rule_type: &str, _priority: i32) -> Option<RuleResult> {
         match rule_type {
             "deny_keyword" => {
                 let keywords = rule.get("keywords")?.as_array()?;
