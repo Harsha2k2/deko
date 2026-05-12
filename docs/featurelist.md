@@ -330,9 +330,9 @@
 | F216 | CSS styling (dark theme) | [x] | Professional look |
 | F217 | Responsive design | [x] | Mobile + desktop |
 | F218 | Template rendering tests | [x] | Each template renders |
-| F219 | Loading states / spinners | [ ] | For async data |
-| F220 | Toast notifications | [ ] | For success/error feedback |
-| F221 | Dark mode toggle | [ ] | Light/dark theme |
+| F219 | Loading states / spinners | [x] | For async data |
+| F220 | Toast notifications | [x] | For success/error feedback |
+| F221 | Dark mode toggle | [x] | Light/dark theme |
 | F222 | Localization / i18n | [ ] | Multi-language support |
 | F223 | Accessibility (a11y) | [ ] | ARIA labels, keyboard nav |
 | F224 | Real-time updates | [ ] | WebSocket for live action feed |
