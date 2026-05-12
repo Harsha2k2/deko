@@ -5,4 +5,5 @@ pub mod models;
 pub mod middleware;
 pub mod routes;
 pub mod services;
+pub mod redact;
 pub mod test_helpers;

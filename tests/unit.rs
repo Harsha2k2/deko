@@ -523,3 +523,30 @@ fn test_db_pool_is_sqlite_by_default() {
         assert_eq!(result.0, 1);
     });
 }
+
+#[test]
+fn test_redacted_short_value() {
+    let r = deko::redact::Redacted::new("abc");
+    assert_eq!(format!("{}", r), "***");
+}
+
+#[test]
+fn test_redacted_display_hides_most() {
+    let r = deko::redact::Redacted::new("sk-abc123def456ghi789");
+    let displayed = format!("{}", r);
+    assert!(displayed.starts_with("sk-abc"));
+    assert!(displayed.contains("..."));
+    assert!(!displayed.contains("def456ghi789"));
+}
+
+#[test]
+fn test_redacted_inner_returns_full() {
+    let r = deko::redact::Redacted::new("sk-abc123");
+    assert_eq!(r.inner(), "sk-abc123");
+}
+
+#[test]
+fn test_redacted_debug_same_as_display() {
+    let r = deko::redact::Redacted::new("secret-value-12345");
+    assert_eq!(format!("{:?}", r), format!("{}", r));
+}

@@ -39,7 +39,7 @@
 | F013 | Config unit tests | [x] | Default values, validation edge cases |
 | F014 | Per-environment config profiles | [x] | dev/staging/prod env vars defined but no separate profiles |
 | F015 | Config hot-reload | [ ] | SIGHUP or file watch for env changes |
-| F016 | Secret redaction in logs | [ ] | API keys, passwords masked in debug output |
+| F016 | Secret redaction in logs | [x] | API keys, passwords masked in debug output |
 
 ### 1.3 Database
 | ID | Feature | Status | Notes |
