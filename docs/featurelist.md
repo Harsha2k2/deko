@@ -369,8 +369,8 @@
 | F243 | GET /health/ready | [x] | Readiness probe |
 | F244 | GET /health/live | [x] | Liveness probe |
 | F245 | Health check tests | [x] | Mock-based |
-| F246 | Component-level health | [ ] | Per-provider, per-service |
-| F247 | Health check caching | [ ] | Don't hammer APIs on every check |
+| F246 | Component-level health | [x] | Per-provider, per-service |
+| F247 | Health check caching | [x] | Don't hammer APIs on every check |
 | F248 | Custom health check plugins | [ ] | User-defined checks |
 
 ### 9.2 Metrics & Logging

@@ -1,9 +1,12 @@
 use axum::extract::State;
 use axum::Json;
+use std::sync::Mutex;
 
 use utoipa::ToSchema;
 
 use crate::error::AppError;
+
+static LLM_CHECK_CACHE: Mutex<Option<(std::time::Instant, &'static str)>> = Mutex::new(None);
 
 #[derive(serde::Serialize, ToSchema)]
 pub struct HealthResponse {
@@ -12,6 +15,20 @@ pub struct HealthResponse {
     pub version: String,
     pub database: String,
     pub llm: String,
+}
+
+async fn cached_llm_check() -> &'static str {
+    {
+        let cache = LLM_CHECK_CACHE.lock().unwrap();
+        if let Some((time, status)) = &*cache {
+            if time.elapsed() < std::time::Duration::from_secs(30) {
+                return status;
+            }
+        }
+    }
+    let status = check_llm().await;
+    *LLM_CHECK_CACHE.lock().unwrap() = Some((std::time::Instant::now(), status));
+    status
 }
 
 #[utoipa::path(
@@ -28,7 +45,7 @@ pub async fn health(State(pool): State<crate::db::DbPool>) -> Result<Json<Health
         Err(_) => "unhealthy",
     };
 
-    let llm_status = check_llm().await;
+    let llm_status = cached_llm_check().await;
 
     let response = HealthResponse {
         status: if db_status == "healthy" { "healthy" } else { "degraded" }.to_string(),
