@@ -67,15 +67,18 @@ pub struct ListActionsResponse {
     pub total: i64,
 }
 
+/// Submit a new action for security review.
+///
+/// The action is saved with status `pending` and processed asynchronously.
+/// The caller receives an `action_id` to poll for the verdict.
 #[utoipa::path(
     post,
     path = "/action",
+    tag = "actions",
     request_body = CreateActionRequest,
     responses(
         (status = 201, description = "Action created", body = CreateActionResponse),
-        (status = 400, description = "Bad request"),
-        (status = 401, description = "Unauthorized"),
-        (status = 500, description = "Internal server error"),
+        (status = 401, description = "Invalid or missing API key"),
     ),
     security(("ApiKey" = []))
 )]

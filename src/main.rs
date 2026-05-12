@@ -15,6 +15,21 @@ use routes::create_router;
 use services::{ActionProcessor, VerdictService, MetricsCollector};
 use tracing::info;
 
+/// Deko - AI Agent Action Watchdog
+///
+/// A security middleware that intercepts AI agent actions, evaluates them
+/// against policies and LLM analysis, and decides whether to approve, deny,
+/// or escalate each action.
+///
+/// # Architecture
+/// ```text
+/// Agent → POST /action → Policy Engine → LLM Analysis → Verdict → Forward/Block
+/// ```
+///
+/// # Safety Guarantees
+/// - **Default-Deny**: Every action is blocked unless explicitly approved
+/// - **Fail-Closed**: System failures result in denial, never approval
+/// - **Immutable Audit**: Every decision is permanently recorded
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let config = Config::from_env()?;

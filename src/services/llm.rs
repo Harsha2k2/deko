@@ -5,6 +5,7 @@ use crate::config::LLMProvider;
 use crate::error::{AppError, Result};
 use crate::models::{RiskLevel, VerdictDecision};
 
+/// Structured verdict returned by an LLM provider after analyzing an action.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct VerdictResult {
     pub decision: VerdictDecision,
@@ -15,6 +16,15 @@ pub struct VerdictResult {
     pub model: String,
 }
 
+/// Common interface all LLM providers must implement.
+///
+/// Deko uses this trait to abstract over Gemini, OpenAI, and future providers.
+/// The verdict service calls [`analyze_action`](LLMProviderTrait::analyze_action)
+/// with the action's intent, payload, optional screenshot, and policy context.
+///
+/// # Fail-Closed
+/// If the provider returns an error, the verdict service marks the action as
+/// **denied** -- no action passes through when the LLM is unreachable.
 #[async_trait]
 pub trait LLMProviderTrait: Send + Sync {
     fn name(&self) -> LLMProvider;

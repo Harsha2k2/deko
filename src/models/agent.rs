@@ -2,6 +2,10 @@ use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use utoipa::ToSchema;
 
+/// A registered AI agent that can submit actions to Deko.
+///
+/// Each agent has a unique API key (SHA-256 hashed before storage) and can be
+/// revoked independently.
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize, ToSchema)]
 pub struct Agent {
     pub id: String,

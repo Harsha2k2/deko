@@ -2,6 +2,23 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use tracing::error;
 
+/// Unified error type for Deko.
+///
+/// Maps to appropriate HTTP status codes via [`IntoResponse`]:
+///
+/// | Variant | HTTP Status | Use Case |
+/// |---|---|---|
+/// | `Database` | 500 | SQLx errors |
+/// | `NotFound` | 404 | Missing resources |
+/// | `Unauthorized` | 401 | Bad API key or session |
+/// | `Forbidden` | 403 | Action denied by policy |
+/// | `BadRequest` | 400 | Malformed input |
+/// | `Internal` | 500 | Unexpected failures |
+/// | `OpenAI` | 500 | OpenAI API errors |
+/// | `Gemini` | 500 | Gemini API errors |
+/// | `Validation` | 422 | Input validation failures |
+/// | `RateLimited` | 429 | Too many requests |
+/// | `Locked` | 423 | Escalated action not yet resolved |
 #[derive(Debug, thiserror::Error)]
 pub enum AppError {
     #[error("Database error: {0}")]

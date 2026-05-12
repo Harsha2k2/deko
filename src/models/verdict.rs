@@ -4,6 +4,10 @@ use utoipa::ToSchema;
 
 use crate::models::{RiskLevel, VerdictDecision};
 
+/// An AI- or policy-generated verdict for an action.
+///
+/// Contains the decision (approved/denied/escalated), an explanation, and a risk
+/// level. If a policy rule triggered the verdict, `policy_matched` records which one.
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize, ToSchema)]
 pub struct Verdict {
     pub id: String,

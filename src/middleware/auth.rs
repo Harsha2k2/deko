@@ -8,12 +8,20 @@ use tracing::warn;
 
 use crate::models::Agent;
 
+/// State required by the API key authentication middleware.
 #[derive(Clone)]
 pub struct AgentState {
     pub pool: SqlitePool,
     pub api_key_secret: String,
 }
 
+/// Middleware that authenticates agents via API key.
+///
+/// Extracts the `X-API-Key` header, hashes it with SHA-256, and looks up the
+/// hash in the database. If found and active, the `Agent` is inserted into the
+/// request extensions for downstream handlers.
+///
+/// Returns `401 Unauthorized` for missing, invalid, or revoked keys.
 pub async fn auth_middleware(
     State(state): State<AgentState>,
     request: Request<Body>,

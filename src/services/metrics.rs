@@ -11,6 +11,12 @@ use axum::response::IntoResponse;
 use serde::Serialize;
 use tokio::time::interval;
 
+/// Thread-safe metrics collector using atomic counters.
+///
+/// Tracks action counts, LLM call latency, webhook delivery status, and HTTP
+/// request metrics. Exposed at the `GET /metrics` endpoint as JSON.
+///
+/// All counters use `AtomicU64` for lock-free concurrent access.
 #[derive(Clone)]
 pub struct MetricsCollector {
     pub actions_total: Arc<AtomicU64>,

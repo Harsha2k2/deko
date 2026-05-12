@@ -3,6 +3,17 @@ use std::net::SocketAddr;
 use anyhow::{bail, Result};
 use tracing::info;
 
+/// Application configuration loaded from environment variables and per-environment profiles.
+///
+/// # Environment Profiles
+/// Config profiles automatically adjust security-sensitive defaults based on
+/// [`Environment`]:
+/// - `Dev`: generous rate limits, larger body sizes, permissive CORS
+/// - `Staging`: balanced defaults suitable for pre-production
+/// - `Prod`: strict rate limits, small body sizes, no wildcard CORS
+///
+/// Environment variables always override profile defaults, so you can set
+/// `DEKO_ENV=prod` but still use `DEKO_RATE_LIMIT_PER_MINUTE=120` if needed.
 #[derive(Clone, Debug)]
 pub struct Config {
     pub port: u16,
@@ -46,6 +57,10 @@ impl std::fmt::Display for LLMProvider {
     }
 }
 
+/// The environment Deko is running in.
+///
+/// Controls log level, log format (JSON in prod), default config values, and
+/// validation strictness.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Environment {
     Dev,
