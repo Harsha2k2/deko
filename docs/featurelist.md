@@ -151,7 +151,7 @@
 | F089 | Batch action submission | [ ] | Multiple actions in one request |
 | F090 | Action deduplication | [x] | idempotency_key prevents duplicates |
 | F091 | Scheduled/delayed actions | [ ] | `execute_at` field for future execution |
-| F092 | Action priority queuing | [ ] | Priority levels for processing order |
+| F092 | Action priority queuing | [x] | Priority levels for processing order |
 | F093 | Action TTL / expiration | [x] | Auto-deny pending actions older than X time |
 | F094 | Attachments support | [ ] | File uploads alongside actions |
 

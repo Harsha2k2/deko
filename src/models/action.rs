@@ -18,6 +18,7 @@ pub struct Action {
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
     pub idempotency_key: Option<String>,
+    pub priority: i32,
 }
 
 #[allow(dead_code)]
@@ -30,6 +31,7 @@ pub struct CreateActionRequest {
     pub target_url: Option<String>,
     pub target_method: Option<String>,
     pub idempotency_key: Option<String>,
+    pub priority: Option<i32>,
 }
 
 #[allow(dead_code)]

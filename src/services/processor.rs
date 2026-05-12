@@ -64,7 +64,7 @@ impl ActionProcessor {
 
     async fn process_pending(&self) -> anyhow::Result<()> {
         let pending_actions: Vec<String> = sqlx::query_scalar(
-            "SELECT id FROM actions WHERE status = 'pending' ORDER BY created_at ASC LIMIT 10",
+            "SELECT id FROM actions WHERE status = 'pending' ORDER BY priority ASC, created_at ASC LIMIT 10",
         )
         .fetch_all(&self.pool)
         .await?;
