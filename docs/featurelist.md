@@ -285,12 +285,12 @@
 | F183 | Graceful shutdown | [x] | Tokio shutdown signal |
 | F184 | Processing metrics | [x] | Count, timing |
 | F185 | Processor tests | [x] | Mock-based |
-| F186 | Configurable batch size | [ ] | Tune for throughput |
+| F186 | Configurable batch size | [x] | Tune for throughput |
 | F187 | Parallel action processing | [ ] | Concurrent LLM calls |
 | F188 | Processing queue dashboard | [ ] | Admin view of queue depth, lag |
 | F189 | Dead letter queue | [ ] | Actions that consistently fail processing |
 | F190 | Re-processing of failed actions | [ ] | Manual or automatic retry |
-| F191 | Action timeout enforcement | [ ] | Max processing time per action |
+| F191 | Action timeout enforcement | [x] | Max processing time per action |
 | F192 | Processor worker pool | [ ] | Configurable worker count |
 
 ### 7.2 Webhook Notifications

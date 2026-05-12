@@ -11,16 +11,20 @@ pub struct ActionProcessor {
     pub verdict_service: VerdictService,
     pub interval_secs: u64,
     pub action_ttl_secs: u64,
+    pub batch_size: u32,
+    pub processing_timeout_secs: u64,
     pub shutdown: Arc<AtomicBool>,
 }
 
 impl ActionProcessor {
-    pub fn new(pool: DbPool, verdict_service: VerdictService, interval_secs: u64, action_ttl_secs: u64) -> Self {
+    pub fn new(pool: DbPool, verdict_service: VerdictService, interval_secs: u64, action_ttl_secs: u64, batch_size: u32, processing_timeout_secs: u64) -> Self {
         Self {
             pool,
             verdict_service,
             interval_secs,
             action_ttl_secs,
+            batch_size,
+            processing_timeout_secs,
             shutdown: Arc::new(AtomicBool::new(false)),
         }
     }
@@ -63,11 +67,13 @@ impl ActionProcessor {
     }
 
     async fn process_pending(&self) -> anyhow::Result<()> {
-        let pending_actions: Vec<String> = sqlx::query_scalar(
-            "SELECT id FROM actions WHERE status = 'pending' ORDER BY priority ASC, created_at ASC LIMIT 10",
-        )
-        .fetch_all(&self.pool)
-        .await?;
+        let sql = format!(
+            "SELECT id FROM actions WHERE status = 'pending' ORDER BY priority ASC, created_at ASC LIMIT {}",
+            self.batch_size
+        );
+        let pending_actions: Vec<String> = sqlx::query_scalar(&sql)
+            .fetch_all(&self.pool)
+            .await?;
 
         if pending_actions.is_empty() {
             return Ok(());
