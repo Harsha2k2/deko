@@ -179,7 +179,7 @@
 | F109 | Response transformation | [ ] | Modify response before returning to agent |
 | F110 | Forward retry on failure | [x] | Retry forwarding if target is unavailable |
 | F111 | Forward timeout | [x] | Configurable timeout for forwarded requests |
-| F112 | Idempotent forwarding | [ ] | Prevent double execution with idempotency key |
+| F112 | Idempotent forwarding | [x] | Prevent double execution with idempotency key |
 
 ---
 

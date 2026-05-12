@@ -491,6 +491,10 @@ pub async fn forward_action(
 
     let verdict = verdict.ok_or_else(|| AppError::BadRequest("No verdict available yet".into()))?;
 
+    if action.status == ActionStatus::Forwarded {
+        return Err(AppError::BadRequest("Action already forwarded (idempotent)".into()));
+    }
+
     match verdict.decision {
         VerdictDecision::Approved => {
             sqlx::query("UPDATE actions SET status = ? WHERE id = ?")
