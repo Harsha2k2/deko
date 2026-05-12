@@ -482,7 +482,7 @@
 ### 11.4 Monitoring
 | ID | Feature | Status | Notes |
 |----|---------|--------|-------|
-| F319 | Prometheus metrics endpoint | [ ] | Standard format |
+| F319 | Prometheus metrics endpoint | [x] | Standard format |
 | F320 | Grafana dashboard | [x] | Pre-built dashboards |
 | F321 | log aggregation setup | [ ] | Loki / ELK / Datadog config |
 | F322 | Uptime monitoring | [ ] | External health check pings |

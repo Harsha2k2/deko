@@ -123,6 +123,7 @@ pub fn create_router(config: &Config, pool: DbPool, pool_set: Arc<DbPoolSet>) ->
         .route("/health/ready", axum::routing::get(health::readiness))
         .route("/health/live", axum::routing::get(health::liveness))
         .route("/metrics", axum::routing::get(metrics_endpoint))
+        .route("/metrics/prometheus", axum::routing::get(metrics_prometheus_endpoint))
         .route("/admin/login", axum::routing::get(admin::admin_login_page).post(admin::admin_login))
         .route("/admin/logout", axum::routing::post(admin::admin_logout))
         .merge(admin_routes)
@@ -143,6 +144,32 @@ pub async fn metrics_endpoint(
     axum::Extension(metrics): axum::Extension<MetricsCollector>,
 ) -> axum::Json<serde_json::Value> {
     axum::Json(metrics.to_json())
+}
+
+pub async fn metrics_prometheus_endpoint(
+    axum::Extension(metrics): axum::Extension<MetricsCollector>,
+) -> (StatusCode, axum::http::HeaderMap, String) {
+    let json = metrics.to_json();
+    let mut output = String::new();
+    output.push_str("# HELP deko_actions_total Total actions processed\n");
+    output.push_str("# TYPE deko_actions_total counter\n");
+    output.push_str(&format!("deko_actions_total {}\n", json["actions"]["total"]));
+    output.push_str(&format!("deko_actions_approved {}\n", json["actions"]["approved"]));
+    output.push_str(&format!("deko_actions_denied {}\n", json["actions"]["denied"]));
+    output.push_str(&format!("deko_actions_escalated {}\n", json["actions"]["escalated"]));
+    output.push_str("# HELP deko_llm_calls_total Total LLM calls\n");
+    output.push_str("# TYPE deko_llm_calls_total counter\n");
+    output.push_str(&format!("deko_llm_calls_total {}\n", json["llm"]["calls_total"]));
+    output.push_str("# HELP deko_errors_total Errors by type\n");
+    output.push_str("# TYPE deko_errors_total counter\n");
+    if let Some(errors) = json.get("errors") {
+        output.push_str(&format!("deko_errors_database {}\n", errors["database"]));
+        output.push_str(&format!("deko_errors_llm {}\n", errors["llm"]));
+        output.push_str(&format!("deko_errors_auth {}\n", errors["auth"]));
+    }
+    let mut headers = axum::http::HeaderMap::new();
+    headers.insert(axum::http::header::CONTENT_TYPE, axum::http::HeaderValue::from_static("text/plain; version=0.0.4"));
+    (StatusCode::OK, headers, output)
 }
 
 async fn admin_auth_middleware(
