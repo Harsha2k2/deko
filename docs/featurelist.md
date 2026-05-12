@@ -215,7 +215,7 @@
 |----|---------|--------|-------|
 | F134 | URL allowlist/blocklist rule | [x] | Match against target_url |
 | F135 | IP allowlist/blocklist rule | [ ] | Match against request origin |
-| F136 | Day/time window rule | [ ] | Only allow actions during business hours |
+| F136 | Day/time window rule | [x] | Only allow actions during business hours |
 | F137 | Rate-based rule | [ ] | Max N actions per agent per time window |
 | F138 | Histogram/trend rule | [ ] | Flag if action amount deviates from historical avg |
 | F139 | Agent capability rule | [x] | What each agent is allowed to do |

@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use crate::db::DbPool;
 use std::time::Instant;
+use chrono::{Datelike, Timelike};
 use tracing::{info, warn};
 
 use crate::config::{Config, LLMProvider};
@@ -426,6 +427,25 @@ impl VerdictService {
                             }
                         }
                     }
+                }
+            }
+            "time_window" => {
+                let now = chrono::Utc::now();
+                let start = rule.get("start_hour_utc").and_then(|v| v.as_i64()).unwrap_or(0);
+                let end = rule.get("end_hour_utc").and_then(|v| v.as_i64()).unwrap_or(24);
+                let hour = now.hour() as i64;
+                let allowed_days = rule.get("days").and_then(|v| v.as_array())
+                    .map(|days| days.iter().filter_map(|d| d.as_i64().map(|d| d as u32)).collect::<Vec<_>>());
+                let day_ok = match allowed_days {
+                    Some(ref days) => days.contains(&now.weekday().num_days_from_monday()),
+                    None => true,
+                };
+                if !day_ok || hour < start || hour >= end {
+                    return Some(RuleResult {
+                        immediate_deny: true,
+                        message: format!("Action outside allowed time window (UTC {}-{}, allowed days: {:?})", start, end, allowed_days),
+                        risk_level: crate::models::RiskLevel::Medium,
+                    });
                 }
             }
             _ => {}
