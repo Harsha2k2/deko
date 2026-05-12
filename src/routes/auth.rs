@@ -111,6 +111,17 @@ pub async fn revoke_agent(
         return Err(AppError::NotFound("Agent not found".into()));
     }
 
+    sqlx::query(
+        "INSERT INTO audit_log (id, action_id, event_type, details) VALUES (?, ?, ?, ?)",
+    )
+    .bind(uuid::Uuid::new_v4().to_string())
+    .bind(&req.agent_id)
+    .bind("agent_revoked")
+    .bind(serde_json::json!({"reason": req.reason}))
+    .execute(&pool)
+    .await
+    .ok();
+
     Ok(Json(serde_json::json!({ "revoked": true, "agent_id": req.agent_id })))
 }
 

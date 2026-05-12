@@ -110,7 +110,7 @@
 | F060 | Auth integration tests | [x] | Full register -> auth -> access flow |
 | F061 | Multi-key per agent | [ ] | Multiple API keys per agent with labels |
 | F062 | API key expiration | [ ] | TTL on keys with auto-revocation |
-| F063 | API key audit | [ ] | Log key generation, revocation, last used |
+| F063 | API key audit | [x] | Log key generation, revocation, last used |
 | F064 | JWT-based auth alternative | [ ] | For server-to-server integration |
 
 ### 3.2 Admin Authentication
@@ -126,7 +126,7 @@
 | F072 | SSO/OAuth2 for admin | [ ] | Google, GitHub, Okta integration |
 | F073 | Session timeout / expiry | [ ] | Configurable TTL on admin sessions |
 | F074 | Admin action confirmation | [ ] | Require re-auth for destructive admin actions |
-| F075 | Rate limiting on login attempts | [ ] | Prevent brute force on admin password |
+| F075 | Rate limiting on login attempts | [x] | Prevent brute force on admin password |
 
 ---
 

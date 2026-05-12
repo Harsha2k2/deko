@@ -148,10 +148,29 @@ pub async fn admin_login_page() -> Html<String> {
     Html(LoginTemplate { error: None }.to_html())
 }
 
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static LOGIN_RATE_LIMIT: AtomicU64 = AtomicU64::new(0);
+const MAX_LOGIN_ATTEMPTS: u64 = 5;
+
+fn check_login_rate_limit() -> Result<()> {
+    let attempts = LOGIN_RATE_LIMIT.load(Ordering::Relaxed);
+    if attempts >= MAX_LOGIN_ATTEMPTS {
+        return Err(AppError::RateLimited);
+    }
+    Ok(())
+}
+
+fn record_login_attempt() {
+    LOGIN_RATE_LIMIT.fetch_add(1, Ordering::Relaxed);
+}
+
 pub async fn admin_login(
     State(_pool): State<crate::db::DbPool>,
     Json(req): Json<AdminLoginRequest>,
 ) -> Result<axum::response::Response> {
+    check_login_rate_limit()?;
+    record_login_attempt();
     use axum::http::header::{SET_COOKIE, HeaderValue};
 
     let config = crate::config::Config::from_env().map_err(|_| AppError::Internal)?;
