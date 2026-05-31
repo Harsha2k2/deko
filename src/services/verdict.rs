@@ -12,6 +12,8 @@ use crate::services::llm::{LLMProviderTrait, ProviderMetrics, VerdictResult};
 use crate::services::providers::{AnthropicProvider, AzureOpenAIProvider, BedrockProvider, CustomProvider, GeminiProvider, OllamaProvider, OpenAIProvider};
 use crate::services::webhook::WebhookService;
 use crate::services::metrics::MetricsCollector;
+use crate::services::prompt_injection::{PromptInjectionDetector, InjectionSeverity};
+use crate::services::ws_broadcaster::WsBroadcaster;
 
 pub struct VerdictService {
     pub pool: DbPool,
@@ -20,10 +22,11 @@ pub struct VerdictService {
     pub default_provider_idx: usize,
     pub webhook: WebhookService,
     pub metrics: Arc<MetricsCollector>,
+    pub ws_broadcaster: Arc<WsBroadcaster>,
 }
 
 impl VerdictService {
-    pub fn new(pool: DbPool, config: &Config, metrics: Arc<MetricsCollector>) -> Self {
+    pub fn new(pool: DbPool, config: &Config, metrics: Arc<MetricsCollector>, ws_broadcaster: Arc<WsBroadcaster>) -> Self {
         let mut providers: Vec<Box<dyn LLMProviderTrait>> = Vec::new();
         let mut default_idx = 0;
 
@@ -114,6 +117,7 @@ impl VerdictService {
             default_provider_idx: default_idx,
             webhook: WebhookService::new(config.webhook_url.clone()),
             metrics,
+            ws_broadcaster,
         }
     }
 
@@ -167,9 +171,48 @@ impl VerdictService {
             return Ok(());
         }
 
+        let injection_result = PromptInjectionDetector::analyze(&action.intent, action.payload.as_deref());
+
+        if injection_result.detected {
+            self.audit(action_id, "prompt_injection_detected", &serde_json::json!({
+                "patterns": injection_result.patterns,
+                "risk_level": injection_result.risk_level,
+            }))
+            .await?;
+
+            let has_critical = injection_result.patterns.iter().any(|p| matches!(p.severity, InjectionSeverity::Critical));
+
+            if has_critical {
+                let patterns: Vec<String> = injection_result.patterns.iter()
+                    .map(|p| format!("{}: {}", p.name, p.match_text))
+                    .collect();
+                self.save_verdict(
+                    action_id,
+                    &agent_id,
+                    VerdictResult {
+                        decision: crate::models::VerdictDecision::Denied,
+                        reason: format!("Prompt injection detected: {}", patterns.join("; ")),
+                        risk_level: crate::models::RiskLevel::Critical,
+                        raw_response: String::new(),
+                        provider: LLMProvider::Gemini,
+                        model: "prompt_injection_detector".to_string(),
+                        confidence: 1.0,
+                    },
+                    None,
+                )
+                .await?;
+                return Ok(());
+            }
+        }
+
+        let llm_context = match PromptInjectionDetector::injection_context(&injection_result) {
+            Some(ctx) => format!("{}\n{}", policy_result.context, ctx),
+            None => policy_result.context,
+        };
+
         let verdict_result = self.try_llm_analysis(
             &action,
-            &policy_result.context,
+            &llm_context,
         ).await;
 
         self.save_verdict(
@@ -330,46 +373,6 @@ impl VerdictService {
                     confidence: 0.0,
                 };
             }
-        }
-    }
-
-    pub async fn test_policies(
-        &self,
-        policies: &[Policy],
-        action: &crate::models::Action,
-    ) -> Option<PolicyEvaluation> {
-        let mut context_parts = Vec::new();
-
-        for policy in policies {
-            let rules: serde_json::Value = policy.rules.clone();
-            if let Some(arr) = rules.as_array() {
-                for rule in arr {
-                    if let Some(result) = self.evaluate_rule(rule, action) {
-                        context_parts.push(format!("{}: {}", policy.name, result.message));
-                        if result.immediate_deny {
-                            return Some(PolicyEvaluation {
-                                immediate_deny: true,
-                                reason: Some(format!("Policy '{}' violated: {}", policy.name, result.message)),
-                                risk_level: Some(result.risk_level),
-                                matched_policy_id: Some(policy.id.clone()),
-                                context: context_parts.join("; "),
-                            });
-                        }
-                    }
-                }
-            }
-        }
-
-        if context_parts.is_empty() {
-            None
-        } else {
-            Some(PolicyEvaluation {
-                immediate_deny: false,
-                reason: Some(context_parts.join("; ")),
-                risk_level: None,
-                matched_policy_id: None,
-                context: context_parts.join("; "),
-            })
         }
     }
 
@@ -865,6 +868,20 @@ impl VerdictService {
                 warn!("Failed to send webhook for action {}: {}", action_id, e);
             }
         }
+
+        let ws_msg = serde_json::json!({
+            "type": "verdict",
+            "action_id": action_id,
+            "agent_id": agent_id,
+            "decision": verdict.decision,
+            "reason": verdict.reason,
+            "risk_level": verdict.risk_level,
+            "provider": verdict.provider,
+            "model": verdict.model,
+            "confidence": verdict.confidence,
+            "policy_matched": policy_matched,
+        });
+        self.ws_broadcaster.send(ws_msg.to_string());
 
         info!(
             "Action {} verdict: {:?} (risk: {:?}, provider: {}) - {}",

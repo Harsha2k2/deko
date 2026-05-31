@@ -1,5 +1,6 @@
 mod actions;
 mod admin;
+mod admin_ws;
 mod api_admin;
 mod attachments;
 mod auth;
@@ -22,6 +23,7 @@ use axum::response::IntoResponse;
 
 use crate::config::Config;
 use crate::services::metrics::{MetricsCollector, RateLimiter};
+use crate::services::ws_broadcaster::WsBroadcaster;
 
 #[derive(OpenApi)]
 #[openapi(
@@ -72,7 +74,7 @@ use crate::services::metrics::{MetricsCollector, RateLimiter};
 )]
 pub struct ApiDoc;
 
-pub fn create_router(config: &Config, pool: DbPool, pool_set: Arc<DbPoolSet>) -> anyhow::Result<Router> {
+pub fn create_router(config: &Config, pool: DbPool, pool_set: Arc<DbPoolSet>, ws_broadcaster: Arc<WsBroadcaster>) -> anyhow::Result<Router> {
     info!("Setting up router");
 
     let cors = tower_http::cors::CorsLayer::very_permissive();
@@ -137,6 +139,7 @@ pub fn create_router(config: &Config, pool: DbPool, pool_set: Arc<DbPoolSet>) ->
         .route("/admin/agents/list-api-keys", axum::routing::post(auth::list_api_keys))
         .route("/admin/policies", axum::routing::post(policies::create_policy))
         .route("/admin/policies/test", axum::routing::post(policies::test_policy))
+        .route("/admin/policies/simulate", axum::routing::post(policies::simulate_policies))
         .route("/admin/policies/{id}", axum::routing::put(policies::update_policy))
         .route("/admin/policies/{id}", axum::routing::delete(policies::delete_policy))
         .route("/admin/audit/export", axum::routing::get(admin::export_audit_log))
@@ -146,12 +149,15 @@ pub fn create_router(config: &Config, pool: DbPool, pool_set: Arc<DbPoolSet>) ->
     // JSON API routes for the SPA (require admin auth)
     let json_api_routes = Router::new()
         .route("/api/admin/dashboard", axum::routing::get(api_admin::dashboard))
+        .route("/api/admin/actions/timeline", axum::routing::get(api_admin::action_timeline))
         .route("/api/admin/actions", axum::routing::get(api_admin::list_actions))
         .route("/api/admin/actions/{id}", axum::routing::get(api_admin::get_action))
+        .route("/api/admin/actions/{id}/override", axum::routing::post(api_admin::override_action))
         .route("/api/admin/agents", axum::routing::get(api_admin::list_agents))
         .route("/api/admin/verdicts", axum::routing::get(api_admin::list_verdicts))
         .route("/api/admin/policies", axum::routing::get(api_admin::list_policies))
         .route("/api/admin/audit", axum::routing::get(api_admin::list_audit_log))
+        .route("/api/admin/ws", axum::routing::get(admin_ws::admin_ws_handler))
         .layer(axum::middleware::from_fn(admin_auth_middleware));
 
     // OAuth routes
@@ -189,6 +195,7 @@ pub fn create_router(config: &Config, pool: DbPool, pool_set: Arc<DbPoolSet>) ->
         .layer(body_limit)
         .layer(axum::middleware::from_fn(crate::services::request_metrics_middleware))
         .layer(axum::Extension(metrics))
+        .layer(axum::Extension(ws_broadcaster))
         .layer(axum::Extension(config.clone()))
         .with_state(pool);
 

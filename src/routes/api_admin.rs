@@ -1,6 +1,6 @@
 use axum::extract::{Path, Query, State};
 use axum::Json;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::error::{AppError, Result};
@@ -100,6 +100,27 @@ pub async fn dashboard(State(pool): State<DbPool>) -> Result<Json<serde_json::Va
     })))
 }
 
+pub async fn action_timeline(State(pool): State<DbPool>) -> Result<Json<serde_json::Value>> {
+    let rows: Vec<(String, i64, i64, i64, i64)> = sqlx::query_as(
+        "SELECT date(created_at) as day, \
+         COUNT(*) as total, \
+         SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END) as approved, \
+         SUM(CASE WHEN status = 'denied' THEN 1 ELSE 0 END) as denied, \
+         SUM(CASE WHEN status = 'escalated' THEN 1 ELSE 0 END) as escalated \
+         FROM actions WHERE created_at >= date('now', '-30 days') \
+         GROUP BY date(created_at) ORDER BY day"
+    )
+    .fetch_all(&pool).await.map_err(AppError::Database)?;
+
+    Ok(Json(json!(rows.into_iter().map(|r| json!({
+        "date": r.0,
+        "total": r.1,
+        "approved": r.2,
+        "denied": r.3,
+        "escalated": r.4,
+    })).collect::<Vec<_>>())))
+}
+
 pub async fn list_actions(
     State(pool): State<DbPool>,
     Query(params): Query<ActionsQuery>,
@@ -185,6 +206,88 @@ pub async fn get_action(
         risk_level: v_risk,
         verdict_decision: v_dec,
         verdict_reason: v_reason,
+    }))
+}
+
+#[derive(Deserialize)]
+pub struct OverrideBody {
+    pub decision: String,
+    pub reason: String,
+}
+
+#[derive(Serialize)]
+pub struct OverrideResponse {
+    pub success: bool,
+    pub new_status: String,
+}
+
+pub async fn override_action(
+    State(pool): State<DbPool>,
+    Path(id): Path<String>,
+    Json(body): Json<OverrideBody>,
+) -> Result<Json<OverrideResponse>> {
+    if body.reason.trim().is_empty() {
+        return Err(AppError::BadRequest("reason is required".into()));
+    }
+
+    let action = sqlx::query_as::<_, (String, String)>(
+        "SELECT id, status FROM actions WHERE id = ?"
+    )
+    .bind(&id)
+    .fetch_optional(&pool)
+    .await
+    .map_err(AppError::Database)?
+    .ok_or_else(|| AppError::NotFound("Action not found".into()))?;
+
+    let current_status = action.1.as_str();
+
+    let new_status = match body.decision.as_str() {
+        "approved" => {
+            if current_status != "denied" && current_status != "escalated" && current_status != "pending" {
+                return Err(AppError::BadRequest("Can only override denied, escalated, or pending actions".into()));
+            }
+            "approved"
+        }
+        "denied" => {
+            if current_status != "pending" && current_status != "escalated" {
+                return Err(AppError::BadRequest("Can only deny pending or escalated actions".into()));
+            }
+            "denied"
+        }
+        "escalated" => {
+            if current_status != "pending" {
+                return Err(AppError::BadRequest("Can only escalate pending actions".into()));
+            }
+            "escalated"
+        }
+        _ => return Err(AppError::BadRequest("decision must be 'approved', 'denied', or 'escalated'".into())),
+    };
+
+    sqlx::query("UPDATE actions SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
+        .bind(new_status)
+        .bind(&id)
+        .execute(&pool)
+        .await
+        .map_err(AppError::Database)?;
+
+    sqlx::query(
+        "INSERT INTO audit_log (id, action_id, event_type, details) VALUES (?, ?, ?, ?)"
+    )
+    .bind(uuid::Uuid::new_v4().to_string())
+    .bind(&id)
+    .bind("admin_override")
+    .bind(json!({
+        "previous_status": current_status,
+        "decision": body.decision,
+        "reason": body.reason,
+    }).to_string())
+    .execute(&pool)
+    .await
+    .map_err(AppError::Database)?;
+
+    Ok(Json(OverrideResponse {
+        success: true,
+        new_status: new_status.to_string(),
     }))
 }
 

@@ -3,17 +3,33 @@ import { motion } from 'motion/react'
 import { Shield, AlertTriangle, CheckCircle, Clock, Users, FileText } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { api } from '@/api/client'
-import type { DashboardStats } from '@/types'
+import { addWsListener, useWs } from '@/hooks/use-websocket'
+import { VerdictPieChartCard, ActionTrendsChart } from '@/components/charts'
+import type { DashboardStats, TimelineEntry } from '@/types'
 
 export default function Dashboard() {
   const [stats, setStats] = useState<DashboardStats | null>(null)
+  const [timeline, setTimeline] = useState<TimelineEntry[]>([])
   const [loading, setLoading] = useState(true)
+  const { connected } = useWs()
 
-  useEffect(() => {
+  const fetchStats = () => {
     api.dashboard()
       .then(setStats)
       .catch(() => {})
+    api.actionTimeline()
+      .then(setTimeline)
+      .catch(() => {})
       .finally(() => setLoading(false))
+  }
+
+  useEffect(() => {
+    fetchStats()
+  }, [])
+
+  useEffect(() => {
+    const unsub = addWsListener(() => fetchStats())
+    return unsub
   }, [])
 
   if (loading) {
@@ -36,9 +52,15 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
-        <p className="text-sm text-muted-foreground">Overview of your Deko instance</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
+          <p className="text-sm text-muted-foreground">Overview of your Deko instance</p>
+        </div>
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <span className={`inline-block h-2 w-2 rounded-full ${connected ? 'bg-emerald-500' : 'bg-red-500'}`} />
+          {connected ? 'Live' : 'Reconnecting...'}
+        </div>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
@@ -60,6 +82,16 @@ export default function Dashboard() {
             </Card>
           </motion.div>
         ))}
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <VerdictPieChartCard
+          approved={stats?.approved_actions ?? 0}
+          denied={stats?.denied_actions ?? 0}
+          escalated={stats?.escalated_actions ?? 0}
+          pending={stats?.pending_actions ?? 0}
+        />
+        <ActionTrendsChart data={timeline} />
       </div>
     </div>
   )

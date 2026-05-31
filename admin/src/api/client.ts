@@ -60,6 +60,16 @@ export const api = {
 
   getAction: (id: string) => request<import('@/types').Action>(`/api/admin/actions/${id}`),
 
+  actionTimeline: () =>
+    request<import('@/types').TimelineEntry[]>('/api/admin/actions/timeline'),
+
+  overrideAction: (id: string, decision: string, reason: string) =>
+    request<{ success: boolean; new_status: string }>(`/api/admin/actions/${id}/override`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ decision, reason }),
+    }),
+
   exportActions: () => {
     window.open(`${BASE}/admin/actions/export`, '_blank')
   },
@@ -100,8 +110,15 @@ export const api = {
   deletePolicy: (id: string) =>
     request<void>(`/admin/policies/${id}`, { method: 'DELETE' }),
 
-  testPolicy: (data: { policy: import('@/types').Policy; action: Record<string, unknown> }) =>
-    request<{ matched: boolean; reason: string }>('/admin/policies/test', {
+  testPolicy: (data: { rules: import('@/types').Policy['rules_json']; intent: string; payload?: string; target_url?: string }) =>
+    request<{ matched: boolean; immediate_deny: boolean; reason: string; risk_level?: string }>('/admin/policies/test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }),
+
+  simulateActions: (data: { intent: string; payload?: string; target_url?: string }) =>
+    request<Array<{ policy_name: string; matched: boolean; immediate_deny: boolean; reason: string; risk_level?: string }>>('/admin/policies/simulate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),

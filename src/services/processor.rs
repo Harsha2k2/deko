@@ -12,19 +12,17 @@ pub struct ActionProcessor {
     pub interval_secs: u64,
     pub action_ttl_secs: u64,
     pub batch_size: u32,
-    pub processing_timeout_secs: u64,
     pub shutdown: Arc<AtomicBool>,
 }
 
 impl ActionProcessor {
-    pub fn new(pool: DbPool, verdict_service: Arc<VerdictService>, interval_secs: u64, action_ttl_secs: u64, batch_size: u32, processing_timeout_secs: u64) -> Self {
+    pub fn new(pool: DbPool, verdict_service: Arc<VerdictService>, interval_secs: u64, action_ttl_secs: u64, batch_size: u32) -> Self {
         Self {
             pool,
             verdict_service,
             interval_secs,
             action_ttl_secs,
             batch_size,
-            processing_timeout_secs,
             shutdown: Arc::new(AtomicBool::new(false)),
         }
     }

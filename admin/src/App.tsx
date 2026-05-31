@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { Toaster } from 'sonner'
 import { AuthProvider, useAuth } from '@/hooks/use-auth'
+import { WsProvider } from '@/hooks/use-websocket'
 import { Layout } from '@/components/layout'
 import Login from '@/pages/login'
 import Dashboard from '@/pages/dashboard'
@@ -28,6 +29,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
+        <WsProvider>
         <Routes>
           <Route path="/admin/login" element={<Login />} />
           <Route
@@ -48,6 +50,7 @@ export default function App() {
           </Route>
           <Route path="*" element={<Navigate to="/admin" replace />} />
         </Routes>
+        </WsProvider>
         <Toaster
           position="bottom-right"
           richColors

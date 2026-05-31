@@ -67,6 +67,14 @@ export interface DashboardStats {
   active_policies: number
 }
 
+export interface TimelineEntry {
+  date: string
+  total: number
+  approved: number
+  denied: number
+  escalated: number
+}
+
 export interface ApiKey {
   id: string
   agent_id: string

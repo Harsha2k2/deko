@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::sync::RwLock;
 use tracing::{info, warn};
 
-use crate::services::oauth::{OAuthConfig, OAuthProvider, OAuthUser};
+use crate::services::oauth::{OAuthConfig, OAuthProvider};
 
 #[derive(Clone)]
 pub struct OAuthState {
@@ -119,11 +119,6 @@ pub async fn oauth_callback(
     }
 
     response
-}
-
-#[derive(Deserialize)]
-pub struct OAuthStatusQuery {
-    pub provider: Option<String>,
 }
 
 pub async fn oauth_status(

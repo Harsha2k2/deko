@@ -252,7 +252,7 @@
 | F162 | Provider latency tracking | [x] | ProviderMetrics tracks p50/p95/p99 latency per provider, updated on each request
 | F163 | Provider cost tracking | [x] | ProviderMetrics tracks total tokens + estimated cost, token count estimated from text length
 | F164 | Prompt templates library | [x] | Custom prompts per action type |
-| F165 | Prompt injection detection | [ ] | Analyze input for prompt injection attempts |
+| F165 | Prompt injection detection | [x] | Pattern matching + LLM-enhanced detection, immediate deny on critical patterns |
 | F166 | Confidence scoring | [x] | LLM returns confidence with verdict |
 
 ### 6.2 Verdict Service
@@ -335,8 +335,8 @@
 | F221 | Dark mode toggle | [x] | Light/dark theme |
 | F222 | Localization / i18n | [ ] | Multi-language support |
 | F223 | Accessibility (a11y) | [ ] | ARIA labels, keyboard nav |
-| F224 | Real-time updates | [ ] | WebSocket for live action feed |
-| F225 | Charts and graphs | [ ] | Action trends, denial rates |
+| F224 | Real-time updates | [x] | WebSocket broadcast on verdict, live indicator on dashboard, auto-refresh |
+| F225 | Charts and graphs | [x] | Verdict pie chart + 30-day action trends line chart on dashboard |
 | F226 | Multi-tenant admin UI | [ ] | Isolate agents, actions per tenant |
 
 ### 8.2 Admin API
@@ -637,7 +637,7 @@
 | ID | Feature | Status | Notes |
 |----|---------|--------|-------|
 | F407 | Action timeline visualization | [ ] | Gantt chart of action lifecycle |
-| F408 | Policy simulation | [ ] | "What if" policy testing |
+| F408 | Policy simulation | [x] | "What If" simulator testing sample action against all active policies |
 | F409 | Agent behavior profiling | [ ] | Normal vs anomalous patterns |
 | F410 | Custom dashboard widgets | [ ] | Drag-and-drop dashboard |
 | F411 | Saved filters / views | [ ] | Bookmarked admin views |

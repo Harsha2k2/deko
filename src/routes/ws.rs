@@ -1,7 +1,6 @@
 use axum::extract::ws::{Message, Utf8Bytes, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, State};
 use axum::response::IntoResponse;
-use futures::SinkExt;
 use std::time::Duration;
 use tokio::time::sleep;
 

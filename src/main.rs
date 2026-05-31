@@ -12,7 +12,7 @@ use std::sync::Arc;
 use config::{Config, init_tracing};
 use db::{init_db, run_migrations};
 use routes::create_router;
-use services::{ActionProcessor, VerdictService, MetricsCollector};
+use services::{ActionProcessor, VerdictService, MetricsCollector, ws_broadcaster::WsBroadcaster};
 use tracing::{error, info};
 
 /// Deko - AI Agent Action Watchdog
@@ -72,16 +72,17 @@ async fn main() -> anyhow::Result<()> {
 
     let metrics = Arc::new(MetricsCollector::new());
     metrics.set_pool_config(10, 5);
-    let verdict_service = Arc::new(VerdictService::new(pool.clone(), &config, metrics.clone()));
+    let ws_broadcaster = Arc::new(WsBroadcaster::new(256));
+    let verdict_service = Arc::new(VerdictService::new(pool.clone(), &config, metrics.clone(), ws_broadcaster.clone()));
     verdict_service.start_health_checks(60);
-    let processor = ActionProcessor::new(pool.clone(), verdict_service.clone(), config.processor_poll_interval_secs, config.action_ttl_secs, 10, 30);
+    let processor = ActionProcessor::new(pool.clone(), verdict_service.clone(), config.processor_poll_interval_secs, config.action_ttl_secs, 10);
     let shutdown = processor.shutdown.clone();
 
     let processor_handle = tokio::spawn(async move {
         processor.run().await;
     });
 
-    let app = create_router(&config, pool.clone(), pool_set)?;
+    let app = create_router(&config, pool.clone(), pool_set, ws_broadcaster.clone())?;
 
     let addr: SocketAddr = config.addr();
     info!("Server listening on {}", addr);
