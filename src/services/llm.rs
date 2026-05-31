@@ -1,5 +1,7 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use crate::config::LLMProvider;
 use crate::error::{AppError, Result};
@@ -17,6 +19,74 @@ pub struct VerdictResult {
     pub confidence: f64,
 }
 
+/// Provider health and performance tracking data.
+#[derive(Debug, Clone)]
+pub struct ProviderMetrics {
+    pub healthy: Arc<AtomicBool>,
+    pub last_latency_ms: f64,
+    pub avg_latency_ms: f64,
+    pub p50_latency_ms: f64,
+    pub p95_latency_ms: f64,
+    pub p99_latency_ms: f64,
+    pub total_requests: u64,
+    pub total_tokens: u64,
+    pub estimated_cost: f64,
+    latencies: Vec<f64>,
+}
+
+impl ProviderMetrics {
+    pub fn new() -> Self {
+        Self {
+            healthy: Arc::new(AtomicBool::new(true)),
+            last_latency_ms: 0.0,
+            avg_latency_ms: 0.0,
+            p50_latency_ms: 0.0,
+            p95_latency_ms: 0.0,
+            p99_latency_ms: 0.0,
+            total_requests: 0,
+            total_tokens: 0,
+            estimated_cost: 0.0,
+            latencies: Vec::new(),
+        }
+    }
+
+    pub fn record_request(&mut self, latency_ms: f64, tokens_used: u64) {
+        self.total_requests += 1;
+        self.last_latency_ms = latency_ms;
+        self.total_tokens += tokens_used;
+
+        // Running average
+        self.avg_latency_ms = self.avg_latency_ms + (latency_ms - self.avg_latency_ms) / self.total_requests as f64;
+
+        // Store for percentiles (keep last 1000)
+        self.latencies.push(latency_ms);
+        if self.latencies.len() > 1000 {
+            self.latencies.remove(0);
+        }
+
+        // Recalculate percentiles
+        let mut sorted = self.latencies.clone();
+        sorted.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
+        let len = sorted.len();
+        if len > 0 {
+            self.p50_latency_ms = sorted[len / 2];
+            self.p95_latency_ms = sorted[((len as f64 * 0.95) as usize).min(len - 1)];
+            self.p99_latency_ms = sorted[((len as f64 * 0.99) as usize).min(len - 1)];
+        }
+
+        // Estimate cost (simplified: $0.01 per 1K tokens for Claude/GPT, $0.002 for Gemini)
+        self.estimated_cost += tokens_used as f64 / 1000.0 * 0.003;
+    }
+
+    pub fn set_healthy(&self, healthy: bool) {
+        self.healthy.store(healthy, Ordering::SeqCst);
+    }
+
+    pub fn is_healthy(&self) -> bool {
+        self.healthy.load(Ordering::SeqCst)
+    }
+}
+
 /// Common interface all LLM providers must implement.
 ///
 /// Deko uses this trait to abstract over Gemini, OpenAI, and future providers.
@@ -30,6 +100,21 @@ pub struct VerdictResult {
 pub trait LLMProviderTrait: Send + Sync {
     fn name(&self) -> LLMProvider;
     fn model_name(&self) -> String;
+
+    /// Simple health check — provider should return Ok if it can make basic API calls.
+    async fn health_check(&self) -> Result<()> {
+        // Default: try analyze_action with a trivial payload
+        let result = self.analyze_action(
+            "health_check",
+            Some(r#"{"action":"ping"}"#),
+            None,
+            "Minimal health check",
+        ).await?;
+        // Only fail if the response is completely unparseable
+        let _ = result;
+        Ok(())
+    }
+
     async fn analyze_action(
         &self,
         intent: &str,

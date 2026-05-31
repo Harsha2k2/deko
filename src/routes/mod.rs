@@ -1,10 +1,13 @@
 mod actions;
 mod admin;
 mod api_admin;
+mod attachments;
 mod auth;
 mod health;
+mod oauth;
 mod policies;
 mod token;
+mod ws;
 
 use axum::Router;
 use std::sync::Arc;
@@ -100,6 +103,9 @@ pub fn create_router(config: &Config, pool: DbPool, pool_set: Arc<DbPoolSet>) ->
         .route("/action/{id}/forward", axum::routing::post(actions::forward_action))
         .route("/actions", axum::routing::get(actions::list_actions))
         .route("/actions/batch", axum::routing::post(actions::batch_create_actions))
+        .route("/action/{id}/attachments", axum::routing::post(attachments::upload_attachment).get(attachments::list_attachments))
+        .route("/action/{id}/attachments/{attachment_id}", axum::routing::get(attachments::download_attachment))
+        .route("/action/{id}/ws", axum::routing::get(ws::action_ws_handler))
         .route_layer(axum::middleware::from_fn_with_state(
             auth_state.clone(),
             crate::middleware::auth::auth_middleware,
@@ -148,6 +154,15 @@ pub fn create_router(config: &Config, pool: DbPool, pool_set: Arc<DbPoolSet>) ->
         .route("/api/admin/audit", axum::routing::get(api_admin::list_audit_log))
         .layer(axum::middleware::from_fn(admin_auth_middleware));
 
+    // OAuth routes
+    let oauth_config = crate::services::oauth::OAuthConfig::from_env();
+    let oauth_state = oauth::OAuthState::new(oauth_config);
+    let oauth_routes = Router::new()
+        .route("/admin/auth/login", axum::routing::get(oauth::oauth_login))
+        .route("/admin/auth/callback", axum::routing::get(oauth::oauth_callback))
+        .route("/admin/auth/status", axum::routing::get(oauth::oauth_status))
+        .with_state(oauth_state);
+
     // SPA — serve static files, fallback to index.html for client-side routing
     let spa = ServeDir::new("admin/dist")
         .not_found_service(
@@ -162,6 +177,7 @@ pub fn create_router(config: &Config, pool: DbPool, pool_set: Arc<DbPoolSet>) ->
         .route("/metrics/prometheus", axum::routing::get(metrics_prometheus_endpoint))
         .route("/auth/token", axum::routing::post(token::exchange_token))
         .merge(auth_routes)
+        .merge(oauth_routes)
         .merge(admin_api_routes)
         .merge(json_api_routes)
         .merge(protected_routes)
@@ -216,13 +232,17 @@ async fn admin_auth_middleware(
     next: axum::middleware::Next,
 ) -> axum::response::Response {
     let admin_password = std::env::var("DEKO_ADMIN_PASSWORD").unwrap_or_default();
+    let oauth_enabled = std::env::var("DEKO_OAUTH_ENABLED").ok()
+        .and_then(|v| v.parse::<bool>().ok())
+        .unwrap_or(false);
+
     let auth_header = request
         .headers()
         .get("X-Admin-Password")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
 
-    let cookie_password = request
+    let cookie_value = request
         .headers()
         .get("Cookie")
         .and_then(|v| v.to_str().ok())
@@ -234,16 +254,31 @@ async fn admin_auth_middleware(
         })
         .unwrap_or_default();
 
-    let is_admin = if admin_password.is_empty() {
-        false
-    } else if request.headers().get("X-Forwarded-For").and_then(|v| v.to_str().ok()).map_or(false, |ip| {
+    // IP allowlist check
+    if let Some(ip) = request.headers().get("X-Forwarded-For").and_then(|v| v.to_str().ok()) {
         let allowed = std::env::var("DEKO_ADMIN_IP_ALLOWLIST").unwrap_or_default();
-        !allowed.is_empty() && !allowed.split(',').any(|a| ip.trim().starts_with(a.trim()))
-    }) {
-        return (StatusCode::FORBIDDEN, axum::Json(serde_json::json!({"error": "Admin access restricted by IP"}))).into_response();
-    } else {
+        if !allowed.is_empty() && !allowed.split(',').any(|a| ip.trim().starts_with(a.trim())) {
+            return (StatusCode::FORBIDDEN, axum::Json(serde_json::json!({"error": "Admin access restricted by IP"}))).into_response();
+        }
+    }
+
+    let is_admin = if !admin_password.is_empty() {
         let valid_passwords: Vec<&str> = admin_password.split(',').map(|s| s.trim()).collect();
-        valid_passwords.iter().any(|p| *p == auth_header || *p == cookie_password)
+        if valid_passwords.iter().any(|p| *p == auth_header || *p == cookie_value) {
+            true
+        } else if oauth_enabled && !cookie_value.is_empty() && cookie_value.contains(':') {
+            // OAuth cookie format: "email:provider"
+            let parts: Vec<&str> = cookie_value.splitn(2, ':').collect();
+            parts.len() == 2 && !parts[0].is_empty()
+        } else {
+            false
+        }
+    } else if oauth_enabled && !cookie_value.is_empty() && cookie_value.contains(':') {
+        // No password set, but OAuth is enabled
+        let parts: Vec<&str> = cookie_value.splitn(2, ':').collect();
+        parts.len() == 2 && !parts[0].is_empty()
+    } else {
+        false
     };
 
     if !is_admin {

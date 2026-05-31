@@ -4,6 +4,8 @@ pub mod verdict;
 pub mod webhook;
 pub mod processor;
 pub mod metrics;
+pub mod oauth;
+pub mod attachment;
 
 pub use verdict::VerdictService;
 pub use processor::ActionProcessor;

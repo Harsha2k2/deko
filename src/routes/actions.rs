@@ -33,6 +33,8 @@ pub struct CreateActionRequest {
     pub idempotency_key: Option<String>,
     pub execute_at: Option<String>,
     pub priority: Option<i32>,
+    #[serde(default)]
+    pub response_transform: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -143,7 +145,13 @@ pub async fn create_action(
 
     let id = uuid::Uuid::new_v4().to_string();
 
-    let metadata_str = req.metadata.as_ref().map(|m| m.to_string());
+    let mut metadata = req.metadata.clone().unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
+    if let Some(transform) = &req.response_transform {
+        if let serde_json::Value::Object(ref mut map) = metadata {
+            map.insert("response_transform".to_string(), transform.clone());
+        }
+    }
+    let metadata_str = Some(metadata.to_string());
 
     sqlx::query(
         "INSERT INTO actions (id, agent_id, intent, payload, screenshot_base64, metadata, target_url, target_method, status, idempotency_key, priority, execute_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -549,10 +557,16 @@ pub async fn forward_action(
                 }
 
                 if let Some((status, resp_body, attempts)) = success {
+                    // Apply response transformation
+                    let transformed_body = if let Some(ref transform) = action_metadata_transform(&action.metadata) {
+                        apply_transform(&resp_body, transform)
+                    } else {
+                        resp_body.clone()
+                    };
                     serde_json::json!({
                         "forwarded": true,
                         "target_status": status,
-                        "target_response": resp_body,
+                        "target_response": transformed_body,
                         "forward_attempts": attempts,
                     })
                 } else {
@@ -574,4 +588,29 @@ pub async fn forward_action(
             verdict.reason
         ))),
     }
+}
+
+fn action_metadata_transform(metadata: &Option<String>) -> Option<serde_json::Value> {
+    let meta_str = metadata.as_ref()?;
+    let parsed: serde_json::Value = serde_json::from_str(meta_str).ok()?;
+    parsed.get("response_transform").cloned()
+}
+
+fn apply_transform(body: &str, transform: &serde_json::Value) -> String {
+    let mut result = body.to_string();
+
+    if let Some(find_replace) = transform.as_array() {
+        for item in find_replace {
+            let find = item.get("find").and_then(|v| v.as_str()).unwrap_or("");
+            let replace = item.get("replace").and_then(|v| v.as_str()).unwrap_or("");
+            result = result.replace(find, replace);
+        }
+    } else if let Some(obj) = transform.as_object() {
+        if let Some(find) = obj.get("find").and_then(|v| v.as_str()) {
+            let replace = obj.get("replace").and_then(|v| v.as_str()).unwrap_or("");
+            result = result.replace(find, replace);
+        }
+    }
+
+    result
 }

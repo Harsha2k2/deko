@@ -40,6 +40,22 @@ pub struct Config {
     pub max_request_body_kb: usize,
     pub openai_timeout_secs: u64,
     pub gemini_timeout_secs: u64,
+    pub anthropic_api_key: Option<String>,
+    pub anthropic_model: String,
+    pub anthropic_timeout_secs: u64,
+    pub ollama_base_url: String,
+    pub ollama_model: String,
+    pub ollama_timeout_secs: u64,
+    pub azure_api_key: Option<String>,
+    pub azure_endpoint: String,
+    pub azure_deployment: String,
+    pub azure_api_version: String,
+    pub azure_timeout_secs: u64,
+    pub bedrock_model_id: String,
+    pub bedrock_region: String,
+    pub custom_provider_url: Option<String>,
+    pub custom_provider_model: String,
+    pub custom_provider_timeout_secs: u64,
     pub processor_poll_interval_secs: u64,
     pub action_ttl_secs: u64,
     pub webhook_url: Option<String>,
@@ -53,6 +69,10 @@ pub enum LLMProvider {
     OpenAI,
     Gemini,
     Anthropic,
+    Ollama,
+    Azure,
+    Bedrock,
+    Custom,
 }
 
 impl std::fmt::Display for LLMProvider {
@@ -61,6 +81,10 @@ impl std::fmt::Display for LLMProvider {
             LLMProvider::OpenAI => write!(f, "openai"),
             LLMProvider::Gemini => write!(f, "gemini"),
             LLMProvider::Anthropic => write!(f, "anthropic"),
+            LLMProvider::Ollama => write!(f, "ollama"),
+            LLMProvider::Azure => write!(f, "azure"),
+            LLMProvider::Bedrock => write!(f, "bedrock"),
+            LLMProvider::Custom => write!(f, "custom"),
         }
     }
 }
@@ -96,6 +120,19 @@ pub struct EnvProfile {
     pub max_request_body_kb: usize,
     pub openai_timeout_secs: u64,
     pub gemini_timeout_secs: u64,
+    pub anthropic_model: String,
+    pub anthropic_timeout_secs: u64,
+    pub ollama_base_url: String,
+    pub ollama_model: String,
+    pub ollama_timeout_secs: u64,
+    pub azure_endpoint: String,
+    pub azure_deployment: String,
+    pub azure_api_version: String,
+    pub azure_timeout_secs: u64,
+    pub bedrock_model_id: String,
+    pub bedrock_region: String,
+    pub custom_provider_model: String,
+    pub custom_provider_timeout_secs: u64,
     pub processor_poll_interval_secs: u64,
     pub action_ttl_secs: u64,
 }
@@ -107,12 +144,25 @@ impl Environment {
                 default_model: "gemini-2.0-flash".to_string(),
                 openai_model: "gpt-4o".to_string(),
                 gemini_model: "gemini-2.0-flash".to_string(),
+                anthropic_model: "claude-sonnet-4-20250514".to_string(),
+                ollama_base_url: "http://localhost:11434".to_string(),
+                ollama_model: "llama3.2".to_string(),
                 allowed_origins: vec!["*".to_string()],
                 rate_limit_per_minute: 120,
                 max_screenshot_size_mb: 10,
                 max_request_body_kb: 1024,
                 openai_timeout_secs: 60,
                 gemini_timeout_secs: 60,
+                anthropic_timeout_secs: 60,
+                ollama_timeout_secs: 120,
+                azure_endpoint: "https://your-resource.openai.azure.com".to_string(),
+                azure_deployment: "gpt-4o".to_string(),
+                azure_api_version: "2024-08-01-preview".to_string(),
+                azure_timeout_secs: 60,
+                bedrock_model_id: "anthropic.claude-sonnet-4-20250514".to_string(),
+                bedrock_region: "us-east-1".to_string(),
+                custom_provider_model: "custom-model".to_string(),
+                custom_provider_timeout_secs: 60,
                 processor_poll_interval_secs: 1,
                 action_ttl_secs: 3600,
             },
@@ -120,6 +170,9 @@ impl Environment {
                 default_model: "gemini-2.0-flash".to_string(),
                 openai_model: "gpt-4o".to_string(),
                 gemini_model: "gemini-2.0-flash".to_string(),
+                anthropic_model: "claude-sonnet-4-20250514".to_string(),
+                ollama_base_url: "http://localhost:11434".to_string(),
+                ollama_model: "llama3.2".to_string(),
                 allowed_origins: vec![
                     "http://localhost:8000".to_string(),
                     "http://localhost:3000".to_string(),
@@ -129,6 +182,16 @@ impl Environment {
                 max_request_body_kb: 512,
                 openai_timeout_secs: 30,
                 gemini_timeout_secs: 30,
+                anthropic_timeout_secs: 30,
+                ollama_timeout_secs: 120,
+                azure_endpoint: "https://your-resource.openai.azure.com".to_string(),
+                azure_deployment: "gpt-4o".to_string(),
+                azure_api_version: "2024-08-01-preview".to_string(),
+                azure_timeout_secs: 30,
+                bedrock_model_id: "anthropic.claude-sonnet-4-20250514".to_string(),
+                bedrock_region: "us-east-1".to_string(),
+                custom_provider_model: "custom-model".to_string(),
+                custom_provider_timeout_secs: 30,
                 processor_poll_interval_secs: 2,
                 action_ttl_secs: 1800,
             },
@@ -136,12 +199,25 @@ impl Environment {
                 default_model: "gemini-2.0-flash".to_string(),
                 openai_model: "gpt-4o".to_string(),
                 gemini_model: "gemini-2.0-flash".to_string(),
+                anthropic_model: "claude-sonnet-4-20250514".to_string(),
+                ollama_base_url: "http://localhost:11434".to_string(),
+                ollama_model: "llama3.2".to_string(),
                 allowed_origins: vec![],
                 rate_limit_per_minute: 30,
                 max_screenshot_size_mb: 5,
                 max_request_body_kb: 256,
                 openai_timeout_secs: 15,
                 gemini_timeout_secs: 15,
+                anthropic_timeout_secs: 15,
+                ollama_timeout_secs: 120,
+                azure_endpoint: "https://your-resource.openai.azure.com".to_string(),
+                azure_deployment: "gpt-4o".to_string(),
+                azure_api_version: "2024-08-01-preview".to_string(),
+                azure_timeout_secs: 15,
+                bedrock_model_id: "anthropic.claude-sonnet-4-20250514".to_string(),
+                bedrock_region: "us-east-1".to_string(),
+                custom_provider_model: "custom-model".to_string(),
+                custom_provider_timeout_secs: 15,
                 processor_poll_interval_secs: 2,
                 action_ttl_secs: 1800,
             },
@@ -178,6 +254,10 @@ impl Config {
             Ok("openai") => LLMProvider::OpenAI,
             Ok("gemini") => LLMProvider::Gemini,
             Ok("anthropic") => LLMProvider::Anthropic,
+            Ok("ollama") => LLMProvider::Ollama,
+            Ok("azure") => LLMProvider::Azure,
+            Ok("bedrock") => LLMProvider::Bedrock,
+            Ok("custom") => LLMProvider::Custom,
             _ => LLMProvider::Gemini,
         };
 
@@ -227,6 +307,59 @@ impl Config {
             .and_then(|s| s.parse::<u64>().ok())
             .unwrap_or(profile.gemini_timeout_secs);
 
+        let anthropic_api_key = std::env::var("ANTHROPIC_API_KEY").ok();
+
+        let anthropic_model = std::env::var("ANTHROPIC_MODEL")
+            .unwrap_or(profile.anthropic_model);
+
+        let anthropic_timeout_secs = std::env::var("ANTHROPIC_TIMEOUT_SECS")
+            .ok()
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(profile.anthropic_timeout_secs);
+
+        let ollama_base_url = std::env::var("OLLAMA_BASE_URL")
+            .unwrap_or(profile.ollama_base_url);
+
+        let ollama_model = std::env::var("OLLAMA_MODEL")
+            .unwrap_or(profile.ollama_model);
+
+        let ollama_timeout_secs = std::env::var("OLLAMA_TIMEOUT_SECS")
+            .ok()
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(profile.ollama_timeout_secs);
+
+        let azure_api_key = std::env::var("AZURE_API_KEY").ok();
+
+        let azure_endpoint = std::env::var("AZURE_ENDPOINT")
+            .unwrap_or(profile.azure_endpoint);
+
+        let azure_deployment = std::env::var("AZURE_DEPLOYMENT")
+            .unwrap_or(profile.azure_deployment);
+
+        let azure_api_version = std::env::var("AZURE_API_VERSION")
+            .unwrap_or(profile.azure_api_version);
+
+        let azure_timeout_secs = std::env::var("AZURE_TIMEOUT_SECS")
+            .ok()
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(profile.azure_timeout_secs);
+
+        let bedrock_model_id = std::env::var("BEDROCK_MODEL_ID")
+            .unwrap_or(profile.bedrock_model_id);
+
+        let bedrock_region = std::env::var("BEDROCK_REGION")
+            .unwrap_or(profile.bedrock_region);
+
+        let custom_provider_url = std::env::var("CUSTOM_PROVIDER_URL").ok();
+
+        let custom_provider_model = std::env::var("CUSTOM_PROVIDER_MODEL")
+            .unwrap_or(profile.custom_provider_model);
+
+        let custom_provider_timeout_secs = std::env::var("CUSTOM_PROVIDER_TIMEOUT_SECS")
+            .ok()
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(profile.custom_provider_timeout_secs);
+
         let processor_poll_interval_secs = std::env::var("DEKO_PROCESSOR_POLL_INTERVAL_SECS")
             .ok()
             .and_then(|s| s.parse::<u64>().ok())
@@ -263,6 +396,22 @@ impl Config {
             openai_model,
             gemini_api_key,
             gemini_model,
+            anthropic_api_key,
+            anthropic_model,
+            anthropic_timeout_secs,
+            ollama_base_url,
+            ollama_model,
+            ollama_timeout_secs,
+            azure_api_key,
+            azure_endpoint,
+            azure_deployment,
+            azure_api_version,
+            azure_timeout_secs,
+            bedrock_model_id,
+            bedrock_region,
+            custom_provider_url,
+            custom_provider_model,
+            custom_provider_timeout_secs,
             api_key_secret,
             allowed_origins,
             rate_limit_per_minute,
@@ -332,7 +481,23 @@ impl Config {
                 }
             }
             LLMProvider::Anthropic => {
-                bail!("Anthropic provider not yet implemented");
+                if self.anthropic_api_key.is_none() || self.anthropic_api_key.as_ref().unwrap().is_empty() {
+                    bail!("ANTHROPIC_API_KEY must be set when using Anthropic provider");
+                }
+            }
+            LLMProvider::Ollama => {
+                // Ollama is always available (local), no key validation needed
+            }
+            LLMProvider::Azure => {
+                if self.azure_api_key.is_none() || self.azure_api_key.as_ref().unwrap().is_empty() {
+                    bail!("AZURE_API_KEY must be set when using Azure OpenAI provider");
+                }
+            }
+            LLMProvider::Bedrock => {
+                // Bedrock uses AWS credentials (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY) from env
+            }
+            LLMProvider::Custom => {
+                // Custom provider uses CUSTOM_PROVIDER_URL — no key validation needed
             }
         }
 

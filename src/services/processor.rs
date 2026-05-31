@@ -8,7 +8,7 @@ use crate::services::verdict::VerdictService;
 
 pub struct ActionProcessor {
     pub pool: DbPool,
-    pub verdict_service: VerdictService,
+    pub verdict_service: Arc<VerdictService>,
     pub interval_secs: u64,
     pub action_ttl_secs: u64,
     pub batch_size: u32,
@@ -17,7 +17,7 @@ pub struct ActionProcessor {
 }
 
 impl ActionProcessor {
-    pub fn new(pool: DbPool, verdict_service: VerdictService, interval_secs: u64, action_ttl_secs: u64, batch_size: u32, processing_timeout_secs: u64) -> Self {
+    pub fn new(pool: DbPool, verdict_service: Arc<VerdictService>, interval_secs: u64, action_ttl_secs: u64, batch_size: u32, processing_timeout_secs: u64) -> Self {
         Self {
             pool,
             verdict_service,

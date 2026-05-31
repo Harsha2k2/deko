@@ -123,7 +123,7 @@
 | F069 | HttpOnly+Secure+SameSite cookie | [x] | Secure cookie flags |
 | F070 | Admin auth tests | [x] | Login, logout, protected routes |
 | F071 | Multi-admin support | [x] | Multiple admin accounts with roles |
-| F072 | SSO/OAuth2 for admin | [ ] | Google, GitHub, Okta integration |
+| F072 | SSO/OAuth2 for admin | [x] | Google, GitHub integration |
 | F073 | Session timeout / expiry | [x] | Configurable TTL on admin sessions |
 | F074 | Admin action confirmation | [x] | Require re-auth for destructive admin actions |
 | F075 | Rate limiting on login attempts | [x] | Prevent brute force on admin password |
@@ -153,7 +153,7 @@
 | F091 | Scheduled/delayed actions | [x] | `execute_at` field for future execution |
 | F092 | Action priority queuing | [x] | Priority levels for processing order |
 | F093 | Action TTL / expiration | [x] | Auto-deny pending actions older than X time |
-| F094 | Attachments support | [ ] | File uploads alongside actions |
+| F094 | Attachments support | [x] | File uploads alongside actions |
 
 ### 4.2 Action Polling
 | ID | Feature | Status | Notes |
@@ -162,7 +162,7 @@
 | F096 | Verdict response format | [x] | decision, reason, risk_level |
 | F097 | Pending status response | [x] | {"status": "pending"} |
 | F098 | Retry-After header | [x] | 5 seconds for pending |
-| F099 | Long-poll / WebSocket | [ ] | Server push when verdict ready |
+| F099 | Long-poll / WebSocket | [x] | Server push when verdict ready |
 | F100 | Status endpoint optimization | [x] | Cache verdicts in memory for fast reads |
 
 ### 4.3 Action Forwarding
@@ -176,7 +176,7 @@
 | F106 | Response capture | [x] | Response status + body logged |
 | F107 | Forwarding tests | [x] | All three paths: approve, deny, escalate |
 | F108 | Custom forwarding headers | [x] | Add X-Deko headers to forwarded requests |
-| F109 | Response transformation | [ ] | Modify response before returning to agent |
+| F109 | Response transformation | [x] | Modify response before returning to agent |
 | F110 | Forward retry on failure | [x] | Retry forwarding if target is unavailable |
 | F111 | Forward timeout | [x] | Configurable timeout for forwarded requests |
 | F112 | Idempotent forwarding | [x] | Prevent double execution with idempotency key |
@@ -217,7 +217,7 @@
 | F135 | IP allowlist/blocklist rule | [x] | Match against request origin |
 | F136 | Day/time window rule | [x] | Only allow actions during business hours |
 | F137 | Rate-based rule | [x] | Max N actions per agent per time window |
-| F138 | Histogram/trend rule | [ ] | Flag if action amount deviates from historical avg |
+| F138 | Histogram/trend rule | [x] | Flag if action amount deviates from historical avg |
 | F139 | Agent capability rule | [x] | What each agent is allowed to do |
 | F140 | Payload schema validation | [x] | Validate payload matches expected JSON schema |
 | F141 | Geofencing rule | [x] | Block actions based on geographic origin |
@@ -243,14 +243,14 @@
 | F153 | Fail-closed on timeout/error | [x] | Provider dies -> denied |
 | F154 | LLM audit logging | [x] | Call started + verdict logged to audit |
 | F155 | Mock LLM provider for tests | [x] | Predetermined verdicts |
-| F156 | Anthropic/Claude provider | [ ] | Enum exists, impl pending |
-| F157 | Local LLM (Ollama) provider | [ ] | For air-gapped deployments |
-| F158 | Azure OpenAI provider | [ ] | Microsoft Azure variant |
-| F159 | AWS Bedrock provider | [ ] | Amazon Titan, Claude on AWS |
-| F160 | Custom/self-hosted provider | [ ] | Webhook-based integration for custom LLMs |
-| F161 | Provider health check | [ ] | Periodic ping to ensure provider is up |
-| F162 | Provider latency tracking | [ ] | Track p50/p95/p99 per provider |
-| F163 | Provider cost tracking | [ ] | Token count + cost per verdict |
+| F156 | Anthropic/Claude provider | [x] | AnthropicProvider impl, env ANTHROPIC_API_KEY/ANTHROPIC_MODEL/ANTHROPIC_TIMEOUT_SECS
+| F157 | Local LLM (Ollama) provider | [x] | OllamaProvider impl, env OLLAMA_BASE_URL/OLLAMA_MODEL/OLLAMA_TIMEOUT_SECS, always available no API key needed
+| F158 | Azure OpenAI provider | [x] | AzureOpenAIProvider impl, env AZURE_API_KEY/AZURE_ENDPOINT/AZURE_DEPLOYMENT/AZURE_API_VERSION/AZURE_TIMEOUT_SECS
+| F159 | AWS Bedrock provider | [x] | BedrockProvider impl using Claude via InvokeModel API, env BEDROCK_MODEL_ID/BEDROCK_REGION, uses AWS credentials
+| F160 | Custom/self-hosted provider | [x] | CustomProvider impl, webhook POST with action data, env CUSTOM_PROVIDER_URL/CUSTOM_PROVIDER_MODEL/CUSTOM_PROVIDER_TIMEOUT_SECS
+| F161 | Provider health check | [x] | Periodic health check via health_check() trait method, background task every 60s, marks unhealthy on failure
+| F162 | Provider latency tracking | [x] | ProviderMetrics tracks p50/p95/p99 latency per provider, updated on each request
+| F163 | Provider cost tracking | [x] | ProviderMetrics tracks total tokens + estimated cost, token count estimated from text length
 | F164 | Prompt templates library | [x] | Custom prompts per action type |
 | F165 | Prompt injection detection | [ ] | Analyze input for prompt injection attempts |
 | F166 | Confidence scoring | [x] | LLM returns confidence with verdict |

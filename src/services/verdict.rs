@@ -1,21 +1,22 @@
 use std::sync::Arc;
 use crate::db::DbPool;
 use std::time::Instant;
+use std::sync::Mutex;
 use chrono::{Datelike, Timelike};
 use tracing::{info, warn};
 
 use crate::config::{Config, LLMProvider};
 use crate::error::{AppError, Result};
 use crate::models::{ActionStatus, Policy};
-use crate::services::llm::LLMProviderTrait;
-use crate::services::llm::VerdictResult;
-use crate::services::providers::{GeminiProvider, OpenAIProvider};
+use crate::services::llm::{LLMProviderTrait, ProviderMetrics, VerdictResult};
+use crate::services::providers::{AnthropicProvider, AzureOpenAIProvider, BedrockProvider, CustomProvider, GeminiProvider, OllamaProvider, OpenAIProvider};
 use crate::services::webhook::WebhookService;
 use crate::services::metrics::MetricsCollector;
 
 pub struct VerdictService {
     pub pool: DbPool,
     pub providers: Vec<Box<dyn LLMProviderTrait>>,
+    pub provider_metrics: Mutex<Vec<ProviderMetrics>>,
     pub default_provider_idx: usize,
     pub webhook: WebhookService,
     pub metrics: Arc<MetricsCollector>,
@@ -48,13 +49,68 @@ impl VerdictService {
             }
         }
 
-        if providers.is_empty() {
-            panic!("At least one LLM provider must be configured (GEMINI_API_KEY or OPENAI_API_KEY)");
+        if config.anthropic_api_key.is_some() {
+            providers.push(Box::new(AnthropicProvider::new(
+                config.anthropic_api_key.clone().unwrap(),
+                config.anthropic_model.clone(),
+                config.anthropic_timeout_secs,
+            )));
+            if config.default_provider == LLMProvider::Anthropic {
+                default_idx = providers.len() - 1;
+            }
         }
+
+        providers.push(Box::new(OllamaProvider::new(
+            config.ollama_base_url.clone(),
+            config.ollama_model.clone(),
+            config.ollama_timeout_secs,
+        )));
+        if config.default_provider == LLMProvider::Ollama {
+            default_idx = providers.len() - 1;
+        }
+
+        if config.azure_api_key.is_some() {
+            providers.push(Box::new(AzureOpenAIProvider::new(
+                config.azure_endpoint.clone(),
+                config.azure_deployment.clone(),
+                config.azure_api_key.clone().unwrap(),
+                config.azure_api_version.clone(),
+                config.azure_timeout_secs,
+            )));
+            if config.default_provider == LLMProvider::Azure {
+                default_idx = providers.len() - 1;
+            }
+        }
+
+        providers.push(Box::new(BedrockProvider::new(
+            config.bedrock_model_id.clone(),
+            config.bedrock_region.clone(),
+        )));
+        if config.default_provider == LLMProvider::Bedrock {
+            default_idx = providers.len() - 1;
+        }
+
+        if config.custom_provider_url.is_some() {
+            providers.push(Box::new(CustomProvider::new(
+                config.custom_provider_url.clone().unwrap(),
+                config.custom_provider_model.clone(),
+                config.custom_provider_timeout_secs,
+            )));
+            if config.default_provider == LLMProvider::Custom {
+                default_idx = providers.len() - 1;
+            }
+        }
+
+        if providers.is_empty() {
+            panic!("At least one LLM provider must be configured (GEMINI_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY)");
+        }
+
+        let provider_metrics = Mutex::new(providers.iter().map(|_| ProviderMetrics::new()).collect());
 
         Self {
             pool: pool.clone(),
             providers,
+            provider_metrics,
             default_provider_idx: default_idx,
             webhook: WebhookService::new(config.webhook_url.clone()),
             metrics,
@@ -127,15 +183,68 @@ impl VerdictService {
         Ok(())
     }
 
+    /// Spawn a background task that periodically pings each provider.
+    /// Unhealthy providers are marked healthy again if they respond.
+    pub fn start_health_checks(self: &Arc<Self>, interval_secs: u64) {
+        let svc = self.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(interval_secs));
+            interval.tick().await; // skip first immediate tick
+            loop {
+                interval.tick().await;
+                for i in 0..svc.providers.len() {
+                    let is_healthy = svc.provider_metrics.lock().unwrap()
+                        .get(i).map(|m| m.is_healthy()).unwrap_or(true);
+                    if !is_healthy {
+                        match svc.providers[i].health_check().await {
+                            Ok(_) => {
+                                info!("Provider {} is healthy again", svc.providers[i].model_name());
+                                if let Some(m) = svc.provider_metrics.lock().unwrap().get_mut(i) {
+                                    m.set_healthy(true);
+                                }
+                            }
+                            Err(e) => {
+                                warn!("Provider {} health check failed: {}", svc.providers[i].model_name(), e);
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    fn find_healthy_provider(&self) -> usize {
+        let metrics = self.provider_metrics.lock().unwrap();
+        // Start with default
+        if metrics.get(self.default_provider_idx)
+            .map(|m| m.is_healthy())
+            .unwrap_or(true)
+        {
+            return self.default_provider_idx;
+        }
+        // Fallback to first healthy
+        for i in 0..self.providers.len() {
+            if metrics.get(i).map(|m| m.is_healthy()).unwrap_or(true) {
+                return i;
+            }
+        }
+        // All marked unhealthy — reset and try default
+        self.default_provider_idx
+    }
+
     async fn try_llm_analysis(
         &self,
         action: &crate::models::Action,
         policy_context: &str,
     ) -> VerdictResult {
-        let primary = &self.providers[self.default_provider_idx];
-
         let start = Instant::now();
         self.metrics.inc_llm_call();
+
+        // Find first healthy provider, starting with default
+        let provider_count = self.providers.len();
+        let provider_idx = self.find_healthy_provider();
+
+        let provider = &self.providers[provider_idx];
 
         sqlx::query(
             "INSERT INTO audit_log (id, action_id, event_type, details) VALUES (?, ?, ?, ?)",
@@ -144,28 +253,45 @@ impl VerdictService {
         .bind(&action.id)
         .bind("llm_call_started")
         .bind(serde_json::json!({
-            "provider": primary.name(),
-            "model": primary.model_name(),
+            "provider": provider.name(),
+            "model": provider.model_name(),
         }))
         .execute(&self.pool)
         .await
         .ok();
 
-        match primary.analyze_action(
+        let result = provider.analyze_action(
             &action.intent,
             action.payload.as_deref(),
             action.screenshot_base64.as_deref(),
             policy_context,
-        ).await {
-            Ok(result) => {
-                self.metrics.record_llm_latency(start.elapsed().as_millis() as u64);
-                return result;
+        ).await;
+
+        let elapsed = start.elapsed().as_millis() as u64;
+        self.metrics.record_llm_latency(elapsed);
+
+        match result {
+            Ok(mut verdict) => {
+                // Track latency and estimate token cost
+                let tokens_used = estimate_token_count(&action.intent, action.payload.as_deref(), &verdict.reason);
+                if let Some(metrics) = self.provider_metrics.lock().unwrap().get_mut(provider_idx) {
+                    metrics.record_request(elapsed as f64, tokens_used);
+                }
+                verdict.confidence = verdict.confidence.max(0.0).min(1.0);
+                return verdict;
             }
             Err(e) => {
-                warn!("Primary provider failed: {}", e);
+                warn!("Primary provider failed (idx={}): {}", provider_idx, e);
                 self.metrics.inc_llm_error();
-                if self.providers.len() > 1 {
-                    let fallback_idx = if self.default_provider_idx == 0 { 1 } else { 0 };
+                if let Some(metrics) = self.provider_metrics.lock().unwrap().get_mut(provider_idx) {
+                    metrics.set_healthy(false);
+                }
+
+                // Try all other providers as fallback
+                for fallback_idx in 0..provider_count {
+                    if fallback_idx == provider_idx { continue; }
+                    if !self.provider_metrics.lock().unwrap().get(fallback_idx).map(|m| m.is_healthy()).unwrap_or(true) { continue; }
+
                     let fallback = &self.providers[fallback_idx];
                     match fallback.analyze_action(
                         &action.intent,
@@ -173,35 +299,36 @@ impl VerdictService {
                         action.screenshot_base64.as_deref(),
                         policy_context,
                     ).await {
-                        Ok(result) => {
-                            self.metrics.record_llm_latency(start.elapsed().as_millis() as u64);
-                            return result;
+                        Ok(mut verdict) => {
+                            let elapsed = start.elapsed().as_millis() as u64;
+                            self.metrics.record_llm_latency(elapsed);
+                            let tokens = estimate_token_count(&action.intent, action.payload.as_deref(), &verdict.reason);
+                            if let Some(m) = self.provider_metrics.lock().unwrap().get_mut(fallback_idx) {
+                                m.record_request(elapsed as f64, tokens);
+                            }
+                            verdict.confidence = verdict.confidence.max(0.0).min(1.0);
+                            return verdict;
                         }
                         Err(e2) => {
-                            warn!("Fallback provider also failed: {}", e2);
+                            warn!("Fallback provider (idx={}) also failed: {}", fallback_idx, e2);
                             self.metrics.inc_llm_error();
-                            return VerdictResult {
-                                decision: crate::models::VerdictDecision::Denied,
-                                reason: format!("All LLM providers failed. Primary: {}, Fallback: {}", e, e2),
-                                risk_level: crate::models::RiskLevel::High,
-                                raw_response: String::new(),
-                                provider: fallback.name(),
-                                model: fallback.model_name(),
-                                confidence: 0.0,
-                            };
+                            if let Some(m) = self.provider_metrics.lock().unwrap().get_mut(fallback_idx) {
+                                m.set_healthy(false);
+                            }
                         }
                     }
-                } else {
-                    return VerdictResult {
-                        decision: crate::models::VerdictDecision::Denied,
-                        reason: format!("LLM analysis failed: {}", e),
-                        risk_level: crate::models::RiskLevel::High,
-                        raw_response: String::new(),
-                        provider: primary.name(),
-                        model: primary.model_name(),
-                        confidence: 0.0,
-                    };
                 }
+
+                // All providers failed
+                return VerdictResult {
+                    decision: crate::models::VerdictDecision::Denied,
+                    reason: format!("All LLM providers failed: {}", e),
+                    risk_level: crate::models::RiskLevel::High,
+                    raw_response: String::new(),
+                    provider: provider.name(),
+                    model: provider.model_name(),
+                    confidence: 0.0,
+                };
             }
         }
     }
@@ -352,6 +479,48 @@ impl VerdictService {
                                     matched_policy_id: Some(policy.id.clone()),
                                     context: context_parts.join("; "),
                                 });
+                            }
+                        }
+                    }
+                    if rule.get("type").and_then(|t| t.as_str()) == Some("histogram_trend") {
+                        let field = rule.get("field").and_then(|v| v.as_str()).unwrap_or("amount");
+                        let stddev_threshold = rule.get("stddev_threshold").and_then(|v| v.as_f64()).unwrap_or(2.0);
+                        if let Some(payload_str) = &action.payload {
+                            if let Ok(payload_json) = serde_json::from_str::<serde_json::Value>(payload_str) {
+                                let current_val = payload_json.get(field).and_then(|v| v.as_f64());
+                                if let Some(val) = current_val {
+                                    let query = format!(
+                                        "SELECT AVG(amount), COUNT(amount), SUM(amount*amount) FROM (SELECT CAST(JSON_EXTRACT(payload, '$.{}') AS REAL) AS amount FROM actions WHERE agent_id = ? AND status != 'pending' AND payload IS NOT NULL) WHERE amount IS NOT NULL",
+                                        field
+                                    );
+                                    if let Ok(row) = sqlx::query_as::<_, (Option<f64>, i64, Option<f64>)>(&query)
+                                        .bind(&action.agent_id)
+                                        .fetch_one(&self.pool)
+                                        .await
+                                    {
+                                        if let (Some(avg), count, Some(sum_sq)) = row {
+                                            if count > 5 {
+                                                let variance = (sum_sq / count as f64) - (avg * avg);
+                                                let stddev = variance.sqrt();
+                                                if stddev > 0.0 {
+                                                    let deviation = (val - avg).abs() / stddev;
+                                                    if deviation > stddev_threshold && !is_dry_run {
+                                                        return Ok(PolicyEvaluation {
+                                                            immediate_deny: true,
+                                                            reason: Some(format!(
+                                                                "Histogram anomaly: {} = {:.2} deviates {:.1}σ from mean {:.2} (threshold: {:.0}σ)",
+                                                                field, val, deviation, avg, stddev_threshold
+                                                            )),
+                                                            risk_level: Some(crate::models::RiskLevel::High),
+                                                            matched_policy_id: Some(policy.id.clone()),
+                                                            context: context_parts.join("; "),
+                                                        });
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -760,6 +929,12 @@ impl VerdictService {
         .map_err(AppError::Database)?;
         Ok(())
     }
+}
+
+/// Roughly estimate token count from text lengths (~4 chars per token).
+fn estimate_token_count(intent: &str, payload: Option<&str>, response: &str) -> u64 {
+    let total_chars = intent.len() + payload.unwrap_or("").len() + response.len();
+    (total_chars / 4).max(1) as u64
 }
 
 pub struct PolicyEvaluation {
