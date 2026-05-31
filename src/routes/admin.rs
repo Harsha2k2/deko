@@ -140,8 +140,12 @@ pub struct AdminLoginRequest {
     pub password: String,
 }
 
-pub async fn admin_logout() -> axum::response::Redirect {
-    axum::response::Redirect::to("/admin/login")
+pub async fn admin_logout() -> impl axum::response::IntoResponse {
+    use axum::http::header::{SET_COOKIE, HeaderValue};
+    let cookie = "deko_admin=; Path=/; HttpOnly; Max-Age=0";
+    let mut resp = axum::Json(serde_json::json!({ "ok": true })).into_response();
+    resp.headers_mut().insert(SET_COOKIE, HeaderValue::from_str(cookie).unwrap());
+    resp
 }
 
 pub async fn admin_login_page() -> Html<String> {
@@ -167,7 +171,7 @@ fn record_login_attempt() {
 
 pub async fn admin_login(
     State(_pool): State<crate::db::DbPool>,
-    Json(req): Json<AdminLoginRequest>,
+    axum::Form(req): axum::Form<AdminLoginRequest>,
 ) -> Result<axum::response::Response> {
     check_login_rate_limit()?;
     record_login_attempt();

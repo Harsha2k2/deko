@@ -1,13 +1,16 @@
 mod actions;
 mod admin;
+mod api_admin;
 mod auth;
 mod health;
 mod policies;
+mod token;
 
 use axum::Router;
 use std::sync::Arc;
 use crate::db::{DbPool, DbPoolSet};
 use tower_http::trace::TraceLayer;
+use tower_http::services::ServeDir;
 use tracing::info;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
@@ -78,11 +81,18 @@ pub fn create_router(config: &Config, pool: DbPool, pool_set: Arc<DbPoolSet>) ->
     let metrics = MetricsCollector::new();
     let rate_limiter = RateLimiter::new(config.rate_limit_per_minute, 60);
 
+    let api_key_secret = config.api_key_secret.clone();
+
     let auth_state = crate::middleware::auth::AgentState {
         pool: pool.clone(),
-        api_key_secret: config.api_key_secret.clone(),
+        api_key_secret: api_key_secret.clone(),
     };
 
+    let jwt_state = crate::middleware::jwt::JwtState {
+        jwt_secret: config.jwt_secret.clone(),
+    };
+
+    // Agent API routes — protected by both API key and JWT
     let protected_routes = Router::new()
         .route("/action", axum::routing::post(actions::create_action))
         .route("/action/{id}", axum::routing::get(actions::get_action))
@@ -90,9 +100,13 @@ pub fn create_router(config: &Config, pool: DbPool, pool_set: Arc<DbPoolSet>) ->
         .route("/action/{id}/forward", axum::routing::post(actions::forward_action))
         .route("/actions", axum::routing::get(actions::list_actions))
         .route("/actions/batch", axum::routing::post(actions::batch_create_actions))
-        .layer(axum::middleware::from_fn_with_state(
+        .route_layer(axum::middleware::from_fn_with_state(
             auth_state.clone(),
             crate::middleware::auth::auth_middleware,
+        ))
+        .route_layer(axum::middleware::from_fn_with_state(
+            jwt_state.clone(),
+            crate::middleware::jwt::jwt_middleware,
         ))
         .layer(axum::middleware::from_fn(
             crate::services::rate_limit_middleware,
@@ -100,28 +114,45 @@ pub fn create_router(config: &Config, pool: DbPool, pool_set: Arc<DbPoolSet>) ->
         .layer(axum::Extension(rate_limiter.clone()))
         .layer(axum::Extension(pool_set));
 
-    let admin_routes = Router::new()
-        .route("/admin", axum::routing::get(admin::dashboard))
-        .route("/admin/actions", axum::routing::get(admin::list_admin_actions))
-        .route("/admin/actions/{id}", axum::routing::get(admin::get_admin_action_detail))
-        .route("/admin/actions/{id}/override", axum::routing::post(admin::override_action))
+    // Login/logout routes — no auth middleware (login GET falls through to SPA)
+    let auth_routes = Router::new()
+        .route("/admin/login", axum::routing::post(admin::admin_login))
+        .route("/admin/logout", axum::routing::get(admin::admin_logout).post(admin::admin_logout));
+
+    // Admin API routes (POST endpoints that need admin password)
+    let admin_api_routes = Router::new()
         .route("/admin/actions/export", axum::routing::get(admin::export_actions_csv))
+        .route("/admin/actions/{id}/override", axum::routing::post(admin::override_action))
         .route("/admin/actions/bulk-override", axum::routing::post(admin::bulk_override_actions))
-        .route("/admin/agents", axum::routing::get(admin::agent_management))
         .route("/admin/agents/register", axum::routing::post(auth::register_agent))
         .route("/admin/agents/revoke", axum::routing::post(auth::revoke_agent))
         .route("/admin/agents/rotate-key", axum::routing::post(auth::rotate_agent_key))
         .route("/admin/agents/create-api-key", axum::routing::post(auth::create_api_key))
         .route("/admin/agents/list-api-keys", axum::routing::post(auth::list_api_keys))
-        .route("/admin/policies", axum::routing::get(admin::policy_management).post(policies::create_policy))
+        .route("/admin/policies", axum::routing::post(policies::create_policy))
         .route("/admin/policies/test", axum::routing::post(policies::test_policy))
         .route("/admin/policies/{id}", axum::routing::put(policies::update_policy))
         .route("/admin/policies/{id}", axum::routing::delete(policies::delete_policy))
-        .route("/admin/verdicts", axum::routing::get(admin::verdict_history))
-        .route("/admin/audit", axum::routing::get(admin::audit_log_viewer))
         .route("/admin/audit/export", axum::routing::get(admin::export_audit_log))
         .route("/admin/audit/search", axum::routing::get(admin::search_audit_log))
         .layer(axum::middleware::from_fn(admin_auth_middleware));
+
+    // JSON API routes for the SPA (require admin auth)
+    let json_api_routes = Router::new()
+        .route("/api/admin/dashboard", axum::routing::get(api_admin::dashboard))
+        .route("/api/admin/actions", axum::routing::get(api_admin::list_actions))
+        .route("/api/admin/actions/{id}", axum::routing::get(api_admin::get_action))
+        .route("/api/admin/agents", axum::routing::get(api_admin::list_agents))
+        .route("/api/admin/verdicts", axum::routing::get(api_admin::list_verdicts))
+        .route("/api/admin/policies", axum::routing::get(api_admin::list_policies))
+        .route("/api/admin/audit", axum::routing::get(api_admin::list_audit_log))
+        .layer(axum::middleware::from_fn(admin_auth_middleware));
+
+    // SPA — serve static files, fallback to index.html for client-side routing
+    let spa = ServeDir::new("admin/dist")
+        .not_found_service(
+            tower_http::services::fs::ServeFile::new("admin/dist/index.html")
+        );
 
     let app = Router::new()
         .route("/health", axum::routing::get(health::health))
@@ -129,10 +160,12 @@ pub fn create_router(config: &Config, pool: DbPool, pool_set: Arc<DbPoolSet>) ->
         .route("/health/live", axum::routing::get(health::liveness))
         .route("/metrics", axum::routing::get(metrics_endpoint))
         .route("/metrics/prometheus", axum::routing::get(metrics_prometheus_endpoint))
-        .route("/admin/login", axum::routing::get(admin::admin_login_page).post(admin::admin_login))
-        .route("/admin/logout", axum::routing::post(admin::admin_logout))
-        .merge(admin_routes)
+        .route("/auth/token", axum::routing::post(token::exchange_token))
+        .merge(auth_routes)
+        .merge(admin_api_routes)
+        .merge(json_api_routes)
         .merge(protected_routes)
+        .nest_service("/admin", spa)
         .merge(SwaggerUi::new("/docs").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .nest_service("/static", tower_http::services::ServeDir::new("static"))
         .layer(TraceLayer::new_for_http())
@@ -140,6 +173,7 @@ pub fn create_router(config: &Config, pool: DbPool, pool_set: Arc<DbPoolSet>) ->
         .layer(body_limit)
         .layer(axum::middleware::from_fn(crate::services::request_metrics_middleware))
         .layer(axum::Extension(metrics))
+        .layer(axum::Extension(config.clone()))
         .with_state(pool);
 
     Ok(app)

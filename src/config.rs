@@ -43,6 +43,8 @@ pub struct Config {
     pub processor_poll_interval_secs: u64,
     pub action_ttl_secs: u64,
     pub webhook_url: Option<String>,
+    pub jwt_secret: String,
+    pub jwt_expiry_secs: i64,
 }
 
 #[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
@@ -237,6 +239,18 @@ impl Config {
 
         let webhook_url = std::env::var("DEKO_WEBHOOK_URL").ok();
 
+        let jwt_secret = std::env::var("DEKO_JWT_SECRET")
+            .unwrap_or_else(|_| uuid::Uuid::new_v4().to_string());
+
+        let jwt_expiry_secs = std::env::var("DEKO_JWT_EXPIRY_SECS")
+            .ok()
+            .and_then(|s| s.parse::<i64>().ok())
+            .unwrap_or(3600);
+
+        if jwt_expiry_secs <= 0 {
+            bail!("DEKO_JWT_EXPIRY_SECS must be a positive number");
+        }
+
         let config = Config {
             port,
             env,
@@ -259,6 +273,8 @@ impl Config {
             processor_poll_interval_secs,
             action_ttl_secs,
             webhook_url,
+            jwt_secret,
+            jwt_expiry_secs,
         };
 
         config.validate()?;

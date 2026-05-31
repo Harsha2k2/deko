@@ -111,7 +111,7 @@
 | F061 | Multi-key per agent | [x] | Multiple API keys per agent with labels |
 | F062 | API key expiration | [x] | TTL on keys with auto-revocation |
 | F063 | API key audit | [x] | Log key generation, revocation, last used |
-| F064 | JWT-based auth alternative | [ ] | For server-to-server integration |
+| F064 | JWT-based auth alternative | [x] | POST /auth/token, Bearer token middleware, HS256 |
 
 ### 3.2 Admin Authentication
 | ID | Feature | Status | Notes |
