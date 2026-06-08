@@ -17,6 +17,7 @@ pub struct VerdictResult {
     pub provider: LLMProvider,
     pub model: String,
     pub confidence: f64,
+    pub reasoning_chain: Option<String>,
 }
 
 /// Provider health and performance tracking data.
@@ -137,6 +138,8 @@ pub fn parse_verdict_json(content: &str, provider: LLMProvider, model: String) -
         risk_level: String,
         #[serde(default = "default_confidence")]
         confidence: f64,
+        #[serde(default)]
+        reasoning_chain: Option<serde_json::Value>,
     }
 
     fn default_confidence() -> f64 { 0.8 }
@@ -160,6 +163,15 @@ pub fn parse_verdict_json(content: &str, provider: LLMProvider, model: String) -
         _ => RiskLevel::Medium,
     };
 
+    let reasoning_chain = verdict.reasoning_chain.map(|v| match v {
+        serde_json::Value::String(s) => s,
+        serde_json::Value::Array(arr) => arr.iter()
+            .filter_map(|e| e.as_str().map(|s| s.to_string()))
+            .collect::<Vec<_>>()
+            .join(" → "),
+        _ => String::new(),
+    });
+
     Ok(VerdictResult {
         decision,
         reason: verdict.reason,
@@ -168,6 +180,7 @@ pub fn parse_verdict_json(content: &str, provider: LLMProvider, model: String) -
         provider,
         model,
         confidence: verdict.confidence,
+        reasoning_chain,
     })
 }
 
@@ -200,5 +213,6 @@ Decisions:
 - denied: The action violates policy or appears malicious
 - escalate: The action is ambiguous or requires human judgment
 
-Respond ONLY with valid JSON containing: decision, reason, risk_level."#
+Respond ONLY with valid JSON containing: decision, reason, risk_level, confidence (0.0-1.0), reasoning_chain (string with step-by-step reasoning, separate each step with " → ").
+"#
 }

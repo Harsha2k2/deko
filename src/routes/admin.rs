@@ -80,7 +80,7 @@ pub async fn override_action(
     }
 
     let action = sqlx::query_as::<_, Action>(
-        "SELECT id, agent_id, intent, payload, screenshot_base64, metadata, status, target_url, target_method, created_at, updated_at FROM actions WHERE id = ?",
+        "SELECT id, agent_id, intent, payload, screenshot_base64, metadata, status, target_url, target_method, created_at, updated_at, idempotency_key, priority, execute_at FROM actions WHERE id = ?",
     )
     .bind(&id)
     .fetch_optional(&pool)

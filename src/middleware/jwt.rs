@@ -52,6 +52,7 @@ fn validate_token(token: &str, secret: &str) -> Result<Claims, jsonwebtoken::err
 #[derive(Clone)]
 pub struct JwtState {
     pub jwt_secret: String,
+    pub pool: crate::db::DbPool,
 }
 
 /// Middleware that authenticates agents via JWT Bearer token.
@@ -83,16 +84,11 @@ pub async fn jwt_middleware(
     };
 
     // Look up the agent to ensure it still exists and is active
-    let pool = match request.extensions().get::<crate::db::DbPool>() {
-        Some(p) => p.clone(),
-        None => return (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error").into_response(),
-    };
-
     let agent = match sqlx::query_as::<_, Agent>(
         "SELECT id, name, api_key_hash, active, created_at, deactivated_reason, deactivated_at, api_key_expires_at FROM agents WHERE id = ? AND active = 1",
     )
     .bind(&claims.sub)
-    .fetch_optional(&pool)
+    .fetch_optional(&state.pool)
     .await
     {
         Ok(Some(a)) => a,

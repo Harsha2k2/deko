@@ -63,7 +63,7 @@ pub struct Config {
     pub jwt_expiry_secs: i64,
 }
 
-#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LLMProvider {
     OpenAI,
@@ -250,7 +250,9 @@ impl Config {
 
         let database_read_url = std::env::var("DEKO_DATABASE_READ_URL").ok();
 
-        let default_provider = match std::env::var("LLM_DEFAULT_PROVIDER").as_deref() {
+        let default_provider = match std::env::var("DEKO_DEFAULT_PROVIDER")
+            .or_else(|_| std::env::var("LLM_DEFAULT_PROVIDER"))
+            .as_deref() {
             Ok("openai") => LLMProvider::OpenAI,
             Ok("gemini") => LLMProvider::Gemini,
             Ok("anthropic") => LLMProvider::Anthropic,

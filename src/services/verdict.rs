@@ -9,7 +9,7 @@ use crate::config::{Config, LLMProvider};
 use crate::error::{AppError, Result};
 use crate::models::{ActionStatus, Policy};
 use crate::services::llm::{LLMProviderTrait, ProviderMetrics, VerdictResult};
-use crate::services::providers::{AnthropicProvider, AzureOpenAIProvider, BedrockProvider, CustomProvider, GeminiProvider, OllamaProvider, OpenAIProvider};
+use crate::services::providers::UnifiedProvider;
 use crate::services::webhook::WebhookService;
 use crate::services::metrics::MetricsCollector;
 use crate::services::prompt_injection::{PromptInjectionDetector, InjectionSeverity};
@@ -17,9 +17,8 @@ use crate::services::ws_broadcaster::WsBroadcaster;
 
 pub struct VerdictService {
     pub pool: DbPool,
-    pub providers: Vec<Box<dyn LLMProviderTrait>>,
-    pub provider_metrics: Mutex<Vec<ProviderMetrics>>,
-    pub default_provider_idx: usize,
+    pub provider: Box<dyn LLMProviderTrait>,
+    pub provider_metrics: Mutex<ProviderMetrics>,
     pub webhook: WebhookService,
     pub metrics: Arc<MetricsCollector>,
     pub ws_broadcaster: Arc<WsBroadcaster>,
@@ -27,95 +26,15 @@ pub struct VerdictService {
 
 impl VerdictService {
     pub fn new(pool: DbPool, config: &Config, metrics: Arc<MetricsCollector>, ws_broadcaster: Arc<WsBroadcaster>) -> Self {
-        let mut providers: Vec<Box<dyn LLMProviderTrait>> = Vec::new();
-        let mut default_idx = 0;
-
-        if config.gemini_api_key.is_some() {
-            providers.push(Box::new(GeminiProvider::new(
-                config.gemini_api_key.clone().unwrap(),
-                config.gemini_model.clone(),
-                config.gemini_timeout_secs,
-            )));
-            if config.default_provider == LLMProvider::Gemini {
-                default_idx = providers.len() - 1;
-            }
-        }
-
-        if config.openai_api_key.is_some() {
-            providers.push(Box::new(OpenAIProvider::new(
-                config.openai_api_key.clone().unwrap(),
-                config.openai_model.clone(),
-                config.openai_timeout_secs,
-            )));
-            if config.default_provider == LLMProvider::OpenAI {
-                default_idx = providers.len() - 1;
-            }
-        }
-
-        if config.anthropic_api_key.is_some() {
-            providers.push(Box::new(AnthropicProvider::new(
-                config.anthropic_api_key.clone().unwrap(),
-                config.anthropic_model.clone(),
-                config.anthropic_timeout_secs,
-            )));
-            if config.default_provider == LLMProvider::Anthropic {
-                default_idx = providers.len() - 1;
-            }
-        }
-
-        providers.push(Box::new(OllamaProvider::new(
-            config.ollama_base_url.clone(),
-            config.ollama_model.clone(),
-            config.ollama_timeout_secs,
-        )));
-        if config.default_provider == LLMProvider::Ollama {
-            default_idx = providers.len() - 1;
-        }
-
-        if config.azure_api_key.is_some() {
-            providers.push(Box::new(AzureOpenAIProvider::new(
-                config.azure_endpoint.clone(),
-                config.azure_deployment.clone(),
-                config.azure_api_key.clone().unwrap(),
-                config.azure_api_version.clone(),
-                config.azure_timeout_secs,
-            )));
-            if config.default_provider == LLMProvider::Azure {
-                default_idx = providers.len() - 1;
-            }
-        }
-
-        providers.push(Box::new(BedrockProvider::new(
-            config.bedrock_model_id.clone(),
-            config.bedrock_region.clone(),
-        )));
-        if config.default_provider == LLMProvider::Bedrock {
-            default_idx = providers.len() - 1;
-        }
-
-        if config.custom_provider_url.is_some() {
-            providers.push(Box::new(CustomProvider::new(
-                config.custom_provider_url.clone().unwrap(),
-                config.custom_provider_model.clone(),
-                config.custom_provider_timeout_secs,
-            )));
-            if config.default_provider == LLMProvider::Custom {
-                default_idx = providers.len() - 1;
-            }
-        }
-
-        if providers.is_empty() {
-            panic!("At least one LLM provider must be configured (GEMINI_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY)");
-        }
-
-        let provider_metrics = Mutex::new(providers.iter().map(|_| ProviderMetrics::new()).collect());
+        let webhook = WebhookService::new(config.webhook_url.clone());
+        let config = Arc::new(config.clone());
+        let provider = Box::new(UnifiedProvider::new(Arc::clone(&config), config.default_provider));
 
         Self {
             pool: pool.clone(),
-            providers,
-            provider_metrics,
-            default_provider_idx: default_idx,
-            webhook: WebhookService::new(config.webhook_url.clone()),
+            provider,
+            provider_metrics: Mutex::new(ProviderMetrics::new()),
+            webhook,
             metrics,
             ws_broadcaster,
         }
@@ -153,17 +72,23 @@ impl VerdictService {
         let policy_result = self.evaluate_policies(&action).await?;
 
         if policy_result.immediate_deny {
+            let reason = policy_result.reason.clone().unwrap_or_else(|| "Blocked by policy rule".to_string());
             self.save_verdict(
                 action_id,
                 &agent_id,
                 VerdictResult {
                     decision: crate::models::VerdictDecision::Denied,
-                    reason: policy_result.reason.unwrap_or_else(|| "Blocked by policy rule".to_string()),
+                    reason: reason.clone(),
                     risk_level: policy_result.risk_level.unwrap_or(crate::models::RiskLevel::High),
                     raw_response: String::new(),
                     provider: LLMProvider::Gemini,
                     model: "policy_engine".to_string(),
                     confidence: 1.0,
+                    reasoning_chain: Some(vec![
+                        "Policy evaluation completed".to_string(),
+                        format!("Matched policy: {}", policy_result.matched_policy_id.as_deref().unwrap_or("unknown")),
+                        format!("Violation: {}", reason),
+                    ].join(" → ")),
                 },
                 policy_result.matched_policy_id,
             )
@@ -197,6 +122,12 @@ impl VerdictService {
                         provider: LLMProvider::Gemini,
                         model: "prompt_injection_detector".to_string(),
                         confidence: 1.0,
+                        reasoning_chain: Some(vec![
+                            "Prompt injection scan initiated".to_string(),
+                            format!("Detected {} suspicious pattern(s)", injection_result.patterns.len()),
+                            format!("Critical pattern(s) found: {}", patterns.join(", ")),
+                            "Immediate deny triggered".to_string(),
+                        ].join(" → ")),
                     },
                     None,
                 )
@@ -226,53 +157,29 @@ impl VerdictService {
         Ok(())
     }
 
-    /// Spawn a background task that periodically pings each provider.
-    /// Unhealthy providers are marked healthy again if they respond.
+    /// Spawn a background task that periodically pings the provider.
+    /// Marks it healthy again if it responds.
     pub fn start_health_checks(self: &Arc<Self>, interval_secs: u64) {
         let svc = self.clone();
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(interval_secs));
-            interval.tick().await; // skip first immediate tick
+            interval.tick().await;
             loop {
                 interval.tick().await;
-                for i in 0..svc.providers.len() {
-                    let is_healthy = svc.provider_metrics.lock().unwrap()
-                        .get(i).map(|m| m.is_healthy()).unwrap_or(true);
-                    if !is_healthy {
-                        match svc.providers[i].health_check().await {
-                            Ok(_) => {
-                                info!("Provider {} is healthy again", svc.providers[i].model_name());
-                                if let Some(m) = svc.provider_metrics.lock().unwrap().get_mut(i) {
-                                    m.set_healthy(true);
-                                }
-                            }
-                            Err(e) => {
-                                warn!("Provider {} health check failed: {}", svc.providers[i].model_name(), e);
-                            }
+                let is_healthy = svc.provider_metrics.lock().unwrap().is_healthy();
+                if !is_healthy {
+                    match svc.provider.health_check().await {
+                        Ok(_) => {
+                            info!("Provider {} is healthy again", svc.provider.model_name());
+                            svc.provider_metrics.lock().unwrap().set_healthy(true);
+                        }
+                        Err(e) => {
+                            warn!("Provider {} health check failed: {}", svc.provider.model_name(), e);
                         }
                     }
                 }
             }
         });
-    }
-
-    fn find_healthy_provider(&self) -> usize {
-        let metrics = self.provider_metrics.lock().unwrap();
-        // Start with default
-        if metrics.get(self.default_provider_idx)
-            .map(|m| m.is_healthy())
-            .unwrap_or(true)
-        {
-            return self.default_provider_idx;
-        }
-        // Fallback to first healthy
-        for i in 0..self.providers.len() {
-            if metrics.get(i).map(|m| m.is_healthy()).unwrap_or(true) {
-                return i;
-            }
-        }
-        // All marked unhealthy — reset and try default
-        self.default_provider_idx
     }
 
     async fn try_llm_analysis(
@@ -283,11 +190,8 @@ impl VerdictService {
         let start = Instant::now();
         self.metrics.inc_llm_call();
 
-        // Find first healthy provider, starting with default
-        let provider_count = self.providers.len();
-        let provider_idx = self.find_healthy_provider();
-
-        let provider = &self.providers[provider_idx];
+        let provider_name = self.provider.name();
+        let model_name = self.provider.model_name();
 
         sqlx::query(
             "INSERT INTO audit_log (id, action_id, event_type, details) VALUES (?, ?, ?, ?)",
@@ -296,14 +200,14 @@ impl VerdictService {
         .bind(&action.id)
         .bind("llm_call_started")
         .bind(serde_json::json!({
-            "provider": provider.name(),
-            "model": provider.model_name(),
+            "provider": provider_name,
+            "model": model_name,
         }))
         .execute(&self.pool)
         .await
         .ok();
 
-        let result = provider.analyze_action(
+        let result = self.provider.analyze_action(
             &action.intent,
             action.payload.as_deref(),
             action.screenshot_base64.as_deref(),
@@ -315,63 +219,26 @@ impl VerdictService {
 
         match result {
             Ok(mut verdict) => {
-                // Track latency and estimate token cost
                 let tokens_used = estimate_token_count(&action.intent, action.payload.as_deref(), &verdict.reason);
-                if let Some(metrics) = self.provider_metrics.lock().unwrap().get_mut(provider_idx) {
-                    metrics.record_request(elapsed as f64, tokens_used);
-                }
+                self.provider_metrics.lock().unwrap().record_request(elapsed as f64, tokens_used);
                 verdict.confidence = verdict.confidence.max(0.0).min(1.0);
-                return verdict;
+                verdict
             }
             Err(e) => {
-                warn!("Primary provider failed (idx={}): {}", provider_idx, e);
+                warn!("Provider {} failed: {}", self.provider.model_name(), e);
                 self.metrics.inc_llm_error();
-                if let Some(metrics) = self.provider_metrics.lock().unwrap().get_mut(provider_idx) {
-                    metrics.set_healthy(false);
-                }
+                self.provider_metrics.lock().unwrap().set_healthy(false);
 
-                // Try all other providers as fallback
-                for fallback_idx in 0..provider_count {
-                    if fallback_idx == provider_idx { continue; }
-                    if !self.provider_metrics.lock().unwrap().get(fallback_idx).map(|m| m.is_healthy()).unwrap_or(true) { continue; }
-
-                    let fallback = &self.providers[fallback_idx];
-                    match fallback.analyze_action(
-                        &action.intent,
-                        action.payload.as_deref(),
-                        action.screenshot_base64.as_deref(),
-                        policy_context,
-                    ).await {
-                        Ok(mut verdict) => {
-                            let elapsed = start.elapsed().as_millis() as u64;
-                            self.metrics.record_llm_latency(elapsed);
-                            let tokens = estimate_token_count(&action.intent, action.payload.as_deref(), &verdict.reason);
-                            if let Some(m) = self.provider_metrics.lock().unwrap().get_mut(fallback_idx) {
-                                m.record_request(elapsed as f64, tokens);
-                            }
-                            verdict.confidence = verdict.confidence.max(0.0).min(1.0);
-                            return verdict;
-                        }
-                        Err(e2) => {
-                            warn!("Fallback provider (idx={}) also failed: {}", fallback_idx, e2);
-                            self.metrics.inc_llm_error();
-                            if let Some(m) = self.provider_metrics.lock().unwrap().get_mut(fallback_idx) {
-                                m.set_healthy(false);
-                            }
-                        }
-                    }
-                }
-
-                // All providers failed
-                return VerdictResult {
+                VerdictResult {
                     decision: crate::models::VerdictDecision::Denied,
-                    reason: format!("All LLM providers failed: {}", e),
+                    reason: format!("LLM provider failed: {}", e),
                     risk_level: crate::models::RiskLevel::High,
                     raw_response: String::new(),
-                    provider: provider.name(),
-                    model: provider.model_name(),
+                    provider: provider_name,
+                    model: model_name,
                     confidence: 0.0,
-                };
+                    reasoning_chain: Some("LLM provider failed; fail-closed deny".to_string()),
+                }
             }
         }
     }
@@ -815,7 +682,7 @@ impl VerdictService {
         let mut tx = self.pool.begin().await.map_err(AppError::Database)?;
 
         sqlx::query(
-            "INSERT INTO verdicts (id, action_id, decision, reason, risk_level, policy_matched, llm_raw_response) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO verdicts (id, action_id, decision, reason, risk_level, policy_matched, llm_raw_response, reasoning_chain) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&verdict_id)
         .bind(action_id)
@@ -824,6 +691,7 @@ impl VerdictService {
         .bind(&verdict.risk_level)
         .bind(&policy_matched)
         .bind(&verdict.raw_response)
+        .bind(&verdict.reasoning_chain)
         .execute(&mut *tx)
         .await
         .map_err(AppError::Database)?;
@@ -848,6 +716,7 @@ impl VerdictService {
                 "model": verdict.model,
                 "confidence": verdict.confidence,
                 "policy_matched": policy_matched,
+                "reasoning_chain": verdict.reasoning_chain,
             }),
         )
         .await?;
@@ -880,6 +749,7 @@ impl VerdictService {
             "model": verdict.model,
             "confidence": verdict.confidence,
             "policy_matched": policy_matched,
+            "reasoning_chain": verdict.reasoning_chain,
         });
         self.ws_broadcaster.send(ws_msg.to_string());
 

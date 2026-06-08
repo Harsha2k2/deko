@@ -17,6 +17,7 @@ pub struct Verdict {
     pub risk_level: RiskLevel,
     pub policy_matched: Option<String>,
     pub llm_raw_response: Option<String>,
+    pub reasoning_chain: Option<String>,
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
@@ -27,5 +28,6 @@ pub struct VerdictResponse {
     pub decision: VerdictDecision,
     pub reason: String,
     pub risk_level: RiskLevel,
+    pub reasoning_chain: Option<String>,
     pub created_at: chrono::DateTime<chrono::Utc>,
 }

@@ -25,6 +25,7 @@ pub struct ActionJson {
     pub target_url: Option<String>,
     pub target_method: Option<String>,
     pub risk_level: Option<String>,
+    pub verdict_id: Option<String>,
     pub verdict_decision: Option<String>,
     pub verdict_reason: Option<String>,
 }
@@ -48,6 +49,7 @@ pub struct VerdictJson {
     pub risk_level: String,
     pub policy_matched: Option<String>,
     pub llm_raw_response: Option<String>,
+    pub reasoning_chain: Option<String>,
     pub created_at: String,
 }
 
@@ -139,15 +141,15 @@ pub async fn list_actions(
 
     let mut result = Vec::new();
     for r in rows {
-        let verdict: Option<(String, String, String)> = sqlx::query_as(
-            "SELECT decision, reason, risk_level FROM verdicts WHERE action_id = ? ORDER BY created_at DESC LIMIT 1"
+        let verdict: Option<(String, String, String, String)> = sqlx::query_as(
+            "SELECT id, decision, reason, risk_level FROM verdicts WHERE action_id = ? ORDER BY created_at DESC LIMIT 1"
         )
         .bind(&r.0)
         .fetch_optional(&pool).await.unwrap_or(None);
 
-        let (v_dec, v_reason, v_risk) = match verdict {
-            Some(v) => (Some(v.0), Some(v.1), Some(v.2)),
-            None => (None, None, None),
+        let (v_id, v_dec, v_reason, v_risk) = match verdict {
+            Some(v) => (Some(v.0), Some(v.1), Some(v.2), Some(v.3)),
+            None => (None, None, None, None),
         };
 
         result.push(ActionJson {
@@ -162,6 +164,7 @@ pub async fn list_actions(
             target_url: r.7,
             target_method: r.8,
             risk_level: v_risk,
+            verdict_id: v_id,
             verdict_decision: v_dec,
             verdict_reason: v_reason,
         });
@@ -181,15 +184,15 @@ pub async fn get_action(
 
     let r = row.ok_or_else(|| AppError::NotFound("Action not found".into()))?;
 
-    let verdict: Option<(String, String, String)> = sqlx::query_as(
-        "SELECT decision, reason, risk_level FROM verdicts WHERE action_id = ? ORDER BY created_at DESC LIMIT 1"
+    let verdict: Option<(String, String, String, String)> = sqlx::query_as(
+        "SELECT id, decision, reason, risk_level FROM verdicts WHERE action_id = ? ORDER BY created_at DESC LIMIT 1"
     )
     .bind(&id)
     .fetch_optional(&pool).await.unwrap_or(None);
 
-    let (v_dec, v_reason, v_risk) = match verdict {
-        Some(v) => (Some(v.0), Some(v.1), Some(v.2)),
-        None => (None, None, None),
+    let (v_id, v_dec, v_reason, v_risk) = match verdict {
+        Some(v) => (Some(v.0), Some(v.1), Some(v.2), Some(v.3)),
+        None => (None, None, None, None),
     };
 
     Ok(Json(ActionJson {
@@ -204,6 +207,7 @@ pub async fn get_action(
         target_url: r.7,
         target_method: r.8,
         risk_level: v_risk,
+        verdict_id: v_id,
         verdict_decision: v_dec,
         verdict_reason: v_reason,
     }))
@@ -308,8 +312,8 @@ pub async fn list_agents(State(pool): State<DbPool>) -> Result<Json<Vec<AgentJso
 }
 
 pub async fn list_verdicts(State(pool): State<DbPool>) -> Result<Json<Vec<VerdictJson>>> {
-    let rows: Vec<(String, String, String, String, String, Option<String>, Option<String>, String)> = sqlx::query_as(
-        "SELECT id, action_id, decision, reason, risk_level, policy_matched, llm_raw_response, created_at FROM verdicts ORDER BY created_at DESC LIMIT 100"
+    let rows: Vec<(String, String, String, String, String, Option<String>, Option<String>, Option<String>, String)> = sqlx::query_as(
+        "SELECT id, action_id, decision, reason, risk_level, policy_matched, llm_raw_response, reasoning_chain, created_at FROM verdicts ORDER BY created_at DESC LIMIT 100"
     )
     .fetch_all(&pool).await.map_err(AppError::Database)?;
 
@@ -321,7 +325,8 @@ pub async fn list_verdicts(State(pool): State<DbPool>) -> Result<Json<Vec<Verdic
         risk_level: r.4,
         policy_matched: r.5,
         llm_raw_response: r.6,
-        created_at: r.7,
+        reasoning_chain: r.7,
+        created_at: r.8,
     }).collect()))
 }
 
@@ -370,4 +375,46 @@ pub async fn list_audit_log(
         details: serde_json::from_str(&r.3).ok(),
         created_at: r.4,
     }).collect()))
+}
+
+#[derive(Serialize)]
+pub struct VerdictExplainJson {
+    pub id: String,
+    pub action_id: String,
+    pub decision: String,
+    pub reason: String,
+    pub risk_level: String,
+    pub policy_matched: Option<String>,
+    pub reasoning_chain: Option<String>,
+    pub confidence: Option<f64>,
+    pub provider: Option<String>,
+    pub model: Option<String>,
+    pub created_at: String,
+}
+
+pub async fn explain_verdict(
+    State(pool): State<DbPool>,
+    Path(id): Path<String>,
+) -> Result<Json<VerdictExplainJson>> {
+    let row: Option<(String, String, String, String, String, Option<String>, Option<String>, String)> = sqlx::query_as(
+        "SELECT id, action_id, decision, reason, risk_level, policy_matched, reasoning_chain, created_at FROM verdicts WHERE id = ?"
+    )
+    .bind(&id)
+    .fetch_optional(&pool).await.map_err(AppError::Database)?;
+
+    let r = row.ok_or_else(|| AppError::NotFound("Verdict not found".into()))?;
+
+    Ok(Json(VerdictExplainJson {
+        id: r.0,
+        action_id: r.1,
+        decision: r.2,
+        reason: r.3,
+        risk_level: r.4,
+        policy_matched: r.5,
+        reasoning_chain: r.6,
+        confidence: None,
+        provider: None,
+        model: None,
+        created_at: r.7,
+    }))
 }

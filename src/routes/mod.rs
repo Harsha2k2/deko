@@ -95,6 +95,7 @@ pub fn create_router(config: &Config, pool: DbPool, pool_set: Arc<DbPoolSet>, ws
 
     let jwt_state = crate::middleware::jwt::JwtState {
         jwt_secret: config.jwt_secret.clone(),
+        pool: pool.clone(),
     };
 
     // Agent API routes — protected by both API key and JWT
@@ -155,6 +156,7 @@ pub fn create_router(config: &Config, pool: DbPool, pool_set: Arc<DbPoolSet>, ws
         .route("/api/admin/actions/{id}/override", axum::routing::post(api_admin::override_action))
         .route("/api/admin/agents", axum::routing::get(api_admin::list_agents))
         .route("/api/admin/verdicts", axum::routing::get(api_admin::list_verdicts))
+        .route("/api/admin/verdicts/{id}/explain", axum::routing::get(api_admin::explain_verdict))
         .route("/api/admin/policies", axum::routing::get(api_admin::list_policies))
         .route("/api/admin/audit", axum::routing::get(api_admin::list_audit_log))
         .route("/api/admin/ws", axum::routing::get(admin_ws::admin_ws_handler))

@@ -89,6 +89,21 @@ export const api = {
   listVerdicts: () =>
     request<import('@/types').Verdict[]>('/api/admin/verdicts'),
 
+  explainVerdict: (id: string) =>
+    request<{
+      id: string
+      action_id: string
+      decision: string
+      reason: string
+      risk_level: string
+      policy_matched: string | null
+      reasoning_chain: string | null
+      confidence: number | null
+      provider: string | null
+      model: string | null
+      created_at: string
+    }>(`/api/admin/verdicts/${id}/explain`),
+
   // Policies
   listPolicies: () =>
     request<import('@/types').Policy[]>('/api/admin/policies'),

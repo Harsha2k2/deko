@@ -227,7 +227,7 @@ pub async fn get_action(
     }
 
     let verdict = sqlx::query_as::<_, Verdict>(
-        "SELECT id, action_id, decision, reason, risk_level, policy_matched, llm_raw_response, created_at FROM verdicts WHERE action_id = ?",
+        "SELECT id, action_id, decision, reason, risk_level, policy_matched, llm_raw_response, reasoning_chain, created_at FROM verdicts WHERE action_id = ?",
     )
     .bind(&id)
     .fetch_optional(&pool)
@@ -239,6 +239,7 @@ pub async fn get_action(
         decision: v.decision,
         reason: v.reason,
         risk_level: v.risk_level,
+        reasoning_chain: v.reasoning_chain,
         created_at: v.created_at,
     });
 
@@ -292,7 +293,7 @@ pub async fn get_action_status(
     }
 
     let verdict = sqlx::query_as::<_, Verdict>(
-        "SELECT id, action_id, decision, reason, risk_level, policy_matched, llm_raw_response, created_at FROM verdicts WHERE action_id = ?",
+        "SELECT id, action_id, decision, reason, risk_level, policy_matched, llm_raw_response, reasoning_chain, created_at FROM verdicts WHERE action_id = ?",
     )
     .bind(&id)
     .fetch_optional(&pool)
@@ -490,7 +491,7 @@ pub async fn forward_action(
     }
 
     let verdict = sqlx::query_as::<_, Verdict>(
-        "SELECT id, action_id, decision, reason, risk_level, policy_matched, llm_raw_response, created_at FROM verdicts WHERE action_id = ?",
+        "SELECT id, action_id, decision, reason, risk_level, policy_matched, llm_raw_response, reasoning_chain, created_at FROM verdicts WHERE action_id = ?",
     )
     .bind(&id)
     .fetch_optional(&pool)

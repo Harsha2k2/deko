@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { motion } from 'motion/react'
-import { ArrowLeft, Check, X, AlertTriangle } from 'lucide-react'
+import { ArrowLeft, Check, X, AlertTriangle, Brain, ChevronDown, ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -11,12 +11,29 @@ import { api } from '@/api/client'
 import { toast } from 'sonner'
 import type { Action } from '@/types'
 
+interface VerdictExplain {
+  id: string
+  action_id: string
+  decision: string
+  reason: string
+  risk_level: string
+  policy_matched: string | null
+  reasoning_chain: string | null
+  confidence: number | null
+  provider: string | null
+  model: string | null
+  created_at: string
+}
+
 export default function ActionDetail() {
   const { id } = useParams<{ id: string }>()
   const [action, setAction] = useState<Action | null>(null)
   const [loading, setLoading] = useState(true)
   const [overrideReason, setOverrideReason] = useState('')
   const [overriding, setOverriding] = useState(false)
+  const [verdictExplain, setVerdictExplain] = useState<VerdictExplain | null>(null)
+  const [explainLoading, setExplainLoading] = useState(false)
+  const [explainExpanded, setExplainExpanded] = useState(false)
 
   useEffect(() => {
     if (!id) return
@@ -25,6 +42,15 @@ export default function ActionDetail() {
       .catch(() => {})
       .finally(() => setLoading(false))
   }, [id])
+
+  useEffect(() => {
+    if (!action?.verdict_decision) return
+    setExplainLoading(true)
+    api.explainVerdict(action.id)
+      .then(setVerdictExplain)
+      .catch(() => {})
+      .finally(() => setExplainLoading(false))
+  }, [action?.id, action?.verdict_decision])
 
   const handleOverride = async (decision: string) => {
     if (!overrideReason.trim()) {
@@ -177,6 +203,57 @@ export default function ActionDetail() {
                   </Button>
                 )}
               </div>
+            </CardContent>
+          </Card>
+        </motion.div>
+      )}
+
+      {verdictExplain?.reasoning_chain && (
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2, duration: 0.2 }}
+        >
+          <Card className="border-emerald-500/30">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-emerald-500">
+                <Brain className="h-4 w-4" />
+                AI Reasoning
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="ml-auto h-6 w-6 p-0"
+                  onClick={() => setExplainExpanded(!explainExpanded)}
+                >
+                  {explainExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                </Button>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {explainExpanded && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground mb-2">
+                    <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-500">
+                      {verdictExplain.confidence !== null && `${Math.round(verdictExplain.confidence * 100)}% confidence`}
+                    </span>
+                    {verdictExplain.provider && <span className="px-2 py-0.5 rounded bg-muted">{verdictExplain.provider}: {verdictExplain.model}</span>}
+                    {verdictExplain.policy_matched && <span className="px-2 py-0.5 rounded bg-amber-500/10 text-amber-500">Policy: {verdictExplain.policy_matched}</span>}
+                  </div>
+                  <div className="font-mono text-sm space-y-1">
+                    {verdictExplain.reasoning_chain.split(' → ').map((step, i) => (
+                      <div key={i} className="flex items-start gap-2 text-zinc-300">
+                        <span className="text-emerald-500 shrink-0 mt-0.5">→</span>
+                        <span>{step}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {!explainExpanded && (
+                <p className="text-sm text-muted-foreground text-center py-2">
+                  Click to expand reasoning chain
+                </p>
+              )}
             </CardContent>
           </Card>
         </motion.div>

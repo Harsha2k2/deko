@@ -52,7 +52,7 @@ impl ActionProcessor {
             "UPDATE actions SET status = 'denied', updated_at = CURRENT_TIMESTAMP \
              WHERE status = 'pending' AND created_at < ?",
         )
-        .bind(cutoff.to_rfc3339())
+        .bind(cutoff.format("%Y-%m-%d %H:%M:%S").to_string())
         .execute(&self.pool)
         .await;
 
