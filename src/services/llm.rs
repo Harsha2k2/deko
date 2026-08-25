@@ -35,6 +35,12 @@ pub struct ProviderMetrics {
     latencies: Vec<f64>,
 }
 
+impl Default for ProviderMetrics {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ProviderMetrics {
     pub fn new() -> Self {
         Self {

@@ -353,7 +353,7 @@ pub async fn batch_create_actions(
         .bind(&sanitized_intent)
         .bind(&action_req.payload)
         .bind(&action_req.screenshot_base64)
-        .bind(&action_req.metadata.as_ref().map(|m| m.to_string()))
+        .bind(action_req.metadata.as_ref().map(|m| m.to_string()))
         .bind(&action_req.target_url)
         .bind(&action_req.target_method)
         .bind(ActionStatus::Pending)

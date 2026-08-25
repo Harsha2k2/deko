@@ -10,6 +10,12 @@ pub struct AttachmentService {
     pub storage_dir: PathBuf,
 }
 
+impl Default for AttachmentService {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AttachmentService {
     pub fn new() -> Self {
         // stored outside every served path; downloads go through the
