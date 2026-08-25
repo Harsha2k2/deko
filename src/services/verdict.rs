@@ -164,12 +164,14 @@ impl VerdictService {
                     model: "policy_engine".to_string(),
                     confidence: 1.0,
                     reasoning_chain: Some(
-                        ["Policy evaluation completed".to_string(),
+                        [
+                            "Policy evaluation completed".to_string(),
                             format!(
                                 "Matched policy: {}",
                                 policy_result.matched_policy_id.as_deref().unwrap_or("unknown")
                             ),
-                            format!("Violation: {}", reason)]
+                            format!("Violation: {}", reason),
+                        ]
                         .join(" → "),
                     ),
                 },
@@ -215,10 +217,12 @@ impl VerdictService {
                         model: "prompt_injection_detector".to_string(),
                         confidence: 1.0,
                         reasoning_chain: Some(
-                            ["Prompt injection scan initiated".to_string(),
+                            [
+                                "Prompt injection scan initiated".to_string(),
                                 format!("Detected {} suspicious pattern(s)", injection_result.patterns.len()),
                                 format!("Critical pattern(s) found: {}", patterns.join(", ")),
-                                "Immediate deny triggered".to_string()]
+                                "Immediate deny triggered".to_string(),
+                            ]
                             .join(" → "),
                         ),
                     },
@@ -706,4 +710,3 @@ pub struct PolicyEvaluation {
     matched_policy_id: Option<String>,
     context: String,
 }
-

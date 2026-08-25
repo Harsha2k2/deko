@@ -106,7 +106,15 @@ pub async fn record(
 
 /// walks the whole chain recomputing each hash; reports the first broken link.
 pub async fn verify_chain(pool: &SqlitePool) -> Result<ChainReport> {
-    type ChainRow = (String, Option<String>, String, String, String, Option<String>, Option<String>);
+    type ChainRow = (
+        String,
+        Option<String>,
+        String,
+        String,
+        String,
+        Option<String>,
+        Option<String>,
+    );
     let rows: Vec<ChainRow> = sqlx::query_as(
             "SELECT id, action_id, event_type, details, created_at, prev_hash, entry_hash FROM audit_log ORDER BY rowid ASC",
         )
