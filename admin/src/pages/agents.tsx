@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { motion } from 'motion/react'
-import { Plus, Key } from 'lucide-react'
+import { Plus, Key, Copy, Check, TriangleAlert } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -22,6 +22,8 @@ export default function Agents() {
   const [loading, setLoading] = useState(true)
   const [name, setName] = useState('')
   const [creating, setCreating] = useState(false)
+  const [createdKey, setCreatedKey] = useState<{ name: string; apiKey: string } | null>(null)
+  const [copied, setCopied] = useState(false)
 
   const fetchAgents = () => {
     api.listAgents()
@@ -38,7 +40,9 @@ export default function Agents() {
     setCreating(true)
     try {
       const result = await api.registerAgent(name.trim())
-      toast.success(`Agent created! Key: ${result.api_key}`)
+      // the raw key is never retrievable again; force explicit acknowledgment
+      setCreatedKey({ name: result.name ?? name.trim(), apiKey: result.api_key })
+      setCopied(false)
       setName('')
       fetchAgents()
     } catch (err) {
@@ -48,12 +52,58 @@ export default function Agents() {
     }
   }
 
+  const copyKey = async () => {
+    if (!createdKey) return
+    try {
+      await navigator.clipboard.writeText(createdKey.apiKey)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      toast.error('Clipboard unavailable — select and copy manually')
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Agents</h1>
         <p className="text-sm text-muted-foreground">Manage AI agents and their API keys</p>
       </div>
+
+      {createdKey && (
+        <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}>
+          <Card className="border-amber-500/50 bg-amber-500/5">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <TriangleAlert className="h-4 w-4 text-amber-500" />
+                save "{createdKey.name}"'s api key now — shown only once
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex items-center gap-2">
+                <code className="flex-1 rounded-md border bg-muted px-3 py-2 font-mono text-sm break-all">
+                  {createdKey.apiKey}
+                </code>
+                <Button type="button" variant="outline" size="sm" onClick={copyKey}>
+                  {copied ? <Check className="mr-1 h-4 w-4" /> : <Copy className="mr-1 h-4 w-4" />}
+                  {copied ? 'Copied' : 'Copy'}
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                deko stores only a hash of this key. losing it means rotating the key.
+              </p>
+              <Button
+                type="button"
+                size="sm"
+                variant={copied ? 'default' : 'secondary'}
+                onClick={() => setCreatedKey(null)}
+              >
+                I've stored it safely
+              </Button>
+            </CardContent>
+          </Card>
+        </motion.div>
+      )}
 
       <motion.div
         initial={{ opacity: 0, y: 8 }}
