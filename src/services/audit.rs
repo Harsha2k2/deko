@@ -49,16 +49,6 @@ pub struct ChainReport {
     pub first_broken_id: Option<String>,
 }
 
-/// reads the current chain head hash (entry_hash of the newest row).
-pub async fn current_head(pool: &SqlitePool) -> Result<String> {
-    let row: Option<(Option<String>,)> =
-        sqlx::query_as("SELECT entry_hash FROM audit_log WHERE entry_hash IS NOT NULL ORDER BY rowid DESC LIMIT 1")
-            .fetch_optional(pool)
-            .await
-            .map_err(AppError::Database)?;
-    Ok(row.and_then(|(h,)| h).unwrap_or_else(|| GENESIS_HASH.to_string()))
-}
-
 /// appends one entry to the chain inside an existing transaction.
 ///
 /// used by code paths that must keep the audit write atomic with other

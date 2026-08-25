@@ -211,48 +211,36 @@ pub async fn test_policy(Json(req): Json<TestPolicyRequest>) -> Result<Json<serd
         execute_at: None,
     };
 
+    let mut rules_value = req.rules.clone();
+    let input = crate::services::policy_engine::RuleInput {
+        intent: &sample_action.intent,
+        payload: sample_action.payload.as_deref(),
+        target_url: sample_action.target_url.as_deref(),
+        target_method: sample_action.target_method.as_deref(),
+        metadata: None,
+    };
+
     let mut matched = false;
     let mut immediate_deny = false;
-    let mut reason = String::new();
-    let mut risk_level = None;
+    let mut reason = "No rules matched".to_string();
+    let mut risk_level: Option<&'static str> = None;
 
-    if let Some(arr) = req.rules.as_array() {
-        for rule in arr {
-            let rule_type = rule.get("type").and_then(|t| t.as_str()).unwrap_or("");
-            let intent_lower = sample_action.intent.to_lowercase();
-
-            match rule_type {
-                "deny_keyword" => {
-                    if let Some(keywords) = rule.get("keywords").and_then(|k| k.as_array()) {
-                        for kw in keywords {
-                            if let Some(kw_str) = kw.as_str() {
-                                if intent_lower.contains(&kw_str.to_lowercase()) {
-                                    matched = true;
-                                    immediate_deny = true;
-                                    reason = format!("Denied keyword match: {}", kw_str);
-                                    risk_level = Some("critical");
-                                }
-                            }
-                        }
-                    }
+    if let Some(arr) = rules_value.as_array_mut() {
+        crate::services::policy_engine::sort_rules(arr);
+        for rule in arr.iter() {
+            if let Some(outcome) = crate::services::policy_engine::evaluate_rule(rule, &input) {
+                matched = true;
+                immediate_deny |= outcome.immediate_deny;
+                reason = outcome.message.clone();
+                risk_level = Some(match outcome.risk_level {
+                    crate::models::RiskLevel::Low => "low",
+                    crate::models::RiskLevel::Medium => "medium",
+                    crate::models::RiskLevel::High => "high",
+                    crate::models::RiskLevel::Critical => "critical",
+                });
+                if outcome.immediate_deny {
+                    break;
                 }
-                "max_amount" => {
-                    if let Some(max) = rule.get("max").and_then(|v| v.as_f64()) {
-                        if let Some(ref payload_str) = sample_action.payload {
-                            if let Ok(payload_json) = serde_json::from_str::<serde_json::Value>(payload_str) {
-                                if let Some(amount) = payload_json.get("amount").and_then(|v| v.as_f64()) {
-                                    if amount > max {
-                                        matched = true;
-                                        immediate_deny = true;
-                                        reason = format!("Amount {} exceeds maximum {}", amount, max);
-                                        risk_level = Some("high");
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                _ => {}
             }
         }
     }
@@ -311,6 +299,7 @@ pub async fn simulate_policies(
     Ok(Json(results))
 }
 
+#[derive(serde::Serialize)]
 struct SimulateRuleResult {
     matched: bool,
     immediate_deny: bool,
@@ -319,118 +308,40 @@ struct SimulateRuleResult {
 }
 
 fn test_policy_inner(req: &TestPolicyRequest) -> Option<SimulateRuleResult> {
+    let mut rules_value = req.rules.clone();
+    let input = crate::services::policy_engine::RuleInput {
+        intent: &req.intent,
+        payload: req.payload.as_deref(),
+        target_url: req.target_url.as_deref(),
+        target_method: None,
+        metadata: None,
+    };
+
     let mut matched = false;
     let mut immediate_deny = false;
     let mut reason = String::new();
     let mut risk_level: Option<String> = None;
 
-    if let Some(arr) = req.rules.as_array() {
-        for rule in arr {
-            let rule_type = rule.get("type").and_then(|t| t.as_str()).unwrap_or("");
-            let intent_lower = req.intent.to_lowercase();
-
-            match rule_type {
-                "deny_keyword" => {
-                    if let Some(keywords) = rule.get("keywords").and_then(|k| k.as_array()) {
-                        for kw in keywords {
-                            if let Some(kw_str) = kw.as_str() {
-                                if intent_lower.contains(&kw_str.to_lowercase()) {
-                                    matched = true;
-                                    immediate_deny = true;
-                                    reason = format!("Denied keyword match: {}", kw_str);
-                                    risk_level = Some("critical".to_string());
-                                }
-                            }
-                        }
-                    }
-                }
-                "max_amount" => {
-                    if let Some(max) = rule.get("max").and_then(|v| v.as_f64()) {
-                        if let Some(ref payload_str) = req.payload {
-                            if let Ok(payload_json) = serde_json::from_str::<serde_json::Value>(payload_str) {
-                                if let Some(amount) = payload_json.get("amount").and_then(|v| v.as_f64()) {
-                                    if amount > max {
-                                        matched = true;
-                                        immediate_deny = true;
-                                        reason = format!("Amount {} exceeds maximum {}", amount, max);
-                                        risk_level = Some("high".to_string());
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                "regex_deny" => {
-                    if let Some(patterns) = rule.get("patterns").and_then(|k| k.as_array()) {
-                        let full_text = format!("{} {}", req.intent, req.payload.as_deref().unwrap_or(""));
-                        for pat in patterns {
-                            if let Some(pat_str) = pat.as_str() {
-                                if let Ok(re) = regex::Regex::new(pat_str) {
-                                    if re.is_match(&full_text) {
-                                        matched = true;
-                                        immediate_deny = true;
-                                        reason = format!("Regex pattern matched: {}", pat_str);
-                                        risk_level = Some("critical".to_string());
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                "risk_flag" => {
-                    if let Some(keywords) = rule.get("keywords").and_then(|k| k.as_array()) {
-                        for kw in keywords {
-                            if let Some(kw_str) = kw.as_str() {
-                                if intent_lower.contains(&kw_str.to_lowercase()) {
-                                    matched = true;
-                                    reason = format!("Risk flag: {}", kw_str);
-                                    risk_level = Some("medium".to_string());
-                                }
-                            }
-                        }
-                    }
-                }
-                "url_blocklist" => {
-                    if let Some(blocked) = rule.get("patterns").and_then(|k| k.as_array()) {
-                        if let Some(ref url) = req.target_url {
-                            for pat in blocked {
-                                if let Some(pat_str) = pat.as_str() {
-                                    if url.contains(pat_str) {
-                                        matched = true;
-                                        immediate_deny = true;
-                                        reason = format!("URL matches blocklist: {}", pat_str);
-                                        risk_level = Some("critical".to_string());
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                "url_allowlist" => {
-                    if let Some(allowed) = rule.get("patterns").and_then(|k| k.as_array()) {
-                        if let Some(ref url) = req.target_url {
-                            let is_allowed = allowed.iter().any(|p| p.as_str().is_some_and(|pat| url.contains(pat)));
-                            if !is_allowed {
-                                matched = true;
-                                immediate_deny = true;
-                                reason = format!("URL not in allowlist: {}", url);
-                                risk_level = Some("high".to_string());
-                            }
-                        }
-                    }
-                }
-                _ => {}
+    if let Some(arr) = rules_value.as_array_mut() {
+        crate::services::policy_engine::sort_rules(arr);
+        for rule in arr.iter() {
+            if let Some(outcome) = crate::services::policy_engine::evaluate_rule(rule, &input) {
+                matched = true;
+                immediate_deny |= outcome.immediate_deny;
+                reason = outcome.message.clone();
+                risk_level = Some(match outcome.risk_level {
+                    crate::models::RiskLevel::Low => "low".into(),
+                    crate::models::RiskLevel::Medium => "medium".into(),
+                    crate::models::RiskLevel::High => "high".into(),
+                    crate::models::RiskLevel::Critical => "critical".into(),
+                });
+                if outcome.immediate_deny { break; }
             }
         }
     }
 
     if matched {
-        Some(SimulateRuleResult {
-            matched,
-            immediate_deny,
-            reason,
-            risk_level,
-        })
+        Some(SimulateRuleResult { matched, immediate_deny, reason, risk_level })
     } else {
         None
     }

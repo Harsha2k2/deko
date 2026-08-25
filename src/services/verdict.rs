@@ -1,5 +1,4 @@
 use crate::db::DbPool;
-use chrono::{Datelike, Timelike};
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Instant;
@@ -290,11 +289,13 @@ impl VerdictService {
     }
 
     pub async fn evaluate_policies(&self, action: &crate::models::Action) -> Result<PolicyEvaluation> {
+        // deterministic total order: oldest policy first, id as tiebreaker
         let policies: Vec<Policy> = sqlx::query_as(
             "SELECT id, name, description, rules, active, created_at, updated_at FROM policies \
              WHERE active = 1 \
              AND (activate_at IS NULL OR activate_at <= CURRENT_TIMESTAMP) \
-             AND (deactivate_at IS NULL OR deactivate_at > CURRENT_TIMESTAMP)",
+             AND (deactivate_at IS NULL OR deactivate_at > CURRENT_TIMESTAMP) \
+             ORDER BY created_at ASC, id ASC",
         )
         .fetch_all(&self.pool)
         .await
@@ -306,39 +307,48 @@ impl VerdictService {
         let mut had_match = false;
 
         for policy in &policies {
-            let rules: serde_json::Value = policy.rules.clone();
+            let mut rules_value: serde_json::Value = policy.rules.clone();
 
-            if let Some(arr) = rules.as_array() {
-                for rule in arr {
-                    if let Some(result) = self.evaluate_rule(rule, action) {
-                        had_match = true;
-                        context_parts.push(format!("{}: {}", policy.name, result.message));
+            let rules: Vec<serde_json::Value> = match rules_value.as_array_mut() {
+                Some(arr) => {
+                    crate::services::policy_engine::sort_rules(arr);
+                    arr.clone()
+                }
+                None => continue,
+            };
 
-                        // Record hit statistic
-                        crate::services::audit::record(
-                            &self.pool,
-                            Some(&action.id),
-                            "policy_matched",
-                            &serde_json::json!({
-                                "policy_id": policy.id,
-                                "policy_name": policy.name,
-                                "rule_type": rule.get("type"),
-                                "message": result.message,
-                                "dry_run": is_dry_run,
-                            }),
-                        )
-                        .await
-                        .ok();
+            for rule in &rules {
+                if let Some(result) = crate::services::policy_engine::evaluate_rule(
+                    rule,
+                    &crate::services::policy_engine::RuleInput::from_action(action),
+                ) {
+                    had_match = true;
+                    context_parts.push(format!("{}: {}", policy.name, result.message));
 
-                        if result.immediate_deny && !is_dry_run {
-                            return Ok(PolicyEvaluation {
-                                immediate_deny: true,
-                                reason: Some(format!("Policy '{}' violated: {}", policy.name, result.message)),
-                                risk_level: Some(result.risk_level),
-                                matched_policy_id: Some(policy.id.clone()),
-                                context: context_parts.join("; "),
-                            });
-                        }
+                    // Record hit statistic
+                    crate::services::audit::record(
+                        &self.pool,
+                        Some(&action.id),
+                        "policy_matched",
+                        &serde_json::json!({
+                            "policy_id": policy.id,
+                            "policy_name": policy.name,
+                            "rule_type": rule.get("type"),
+                            "message": result.message,
+                            "dry_run": is_dry_run,
+                        }),
+                    )
+                    .await
+                    .ok();
+
+                    if result.immediate_deny && !is_dry_run {
+                        return Ok(PolicyEvaluation {
+                            immediate_deny: true,
+                            reason: Some(format!("Policy '{}' violated: {}", policy.name, result.message)),
+                            risk_level: Some(result.risk_level),
+                            matched_policy_id: Some(policy.id.clone()),
+                            context: context_parts.join("; "),
+                        });
                     }
                 }
             }
@@ -479,254 +489,6 @@ impl VerdictService {
                 context_parts.join("; ")
             },
         })
-    }
-
-    fn evaluate_rule(&self, rule: &serde_json::Value, action: &crate::models::Action) -> Option<RuleResult> {
-        let rule_type = rule.get("type")?.as_str()?;
-
-        let priority = rule.get("priority").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
-
-        match rule_type {
-            "and" | "or" => self.evaluate_composite_rule(rule, action, rule_type, priority),
-            _ => self.evaluate_simple_rule(rule, action, rule_type, priority),
-        }
-    }
-
-    fn evaluate_composite_rule(
-        &self,
-        rule: &serde_json::Value,
-        action: &crate::models::Action,
-        operator: &str,
-        _priority: i32,
-    ) -> Option<RuleResult> {
-        let rules = rule.get("rules")?.as_array()?;
-        let is_and = operator == "and";
-
-        let mut results: Vec<RuleResult> = Vec::new();
-        for sub_rule in rules {
-            if let Some(result) = self.evaluate_rule(sub_rule, action) {
-                if is_and {
-                    results.push(result);
-                } else {
-                    return Some(result);
-                }
-            } else if is_and {
-                return None;
-            }
-        }
-
-        if is_and && !results.is_empty() {
-            Some(RuleResult {
-                immediate_deny: results.iter().any(|r| r.immediate_deny),
-                message: results
-                    .iter()
-                    .map(|r| r.message.as_str())
-                    .collect::<Vec<_>>()
-                    .join("; "),
-                risk_level: if results
-                    .iter()
-                    .any(|r| r.risk_level == crate::models::RiskLevel::Critical)
-                {
-                    crate::models::RiskLevel::Critical
-                } else if results.iter().any(|r| r.risk_level == crate::models::RiskLevel::High) {
-                    crate::models::RiskLevel::High
-                } else if results.iter().any(|r| r.risk_level == crate::models::RiskLevel::Medium) {
-                    crate::models::RiskLevel::Medium
-                } else {
-                    crate::models::RiskLevel::Low
-                },
-            })
-        } else {
-            None
-        }
-    }
-
-    fn evaluate_simple_rule(
-        &self,
-        rule: &serde_json::Value,
-        action: &crate::models::Action,
-        rule_type: &str,
-        _priority: i32,
-    ) -> Option<RuleResult> {
-        match rule_type {
-            "deny_keyword" => {
-                let keywords = rule.get("keywords")?.as_array()?;
-                let intent_lower = action.intent.to_lowercase();
-                for kw in keywords {
-                    if let Some(kw_str) = kw.as_str() {
-                        if intent_lower.contains(&kw_str.to_lowercase()) {
-                            return Some(RuleResult {
-                                immediate_deny: true,
-                                message: format!("Denied keyword match: {}", kw_str),
-                                risk_level: crate::models::RiskLevel::Critical,
-                            });
-                        }
-                    }
-                }
-            }
-            "require_approval" => {
-                let action_types = rule.get("action_types")?.as_array()?;
-                if let Some(method) = &action.target_method {
-                    for at in action_types {
-                        if let Some(at_str) = at.as_str() {
-                            if method.to_uppercase() == at_str.to_uppercase() {
-                                return Some(RuleResult {
-                                    immediate_deny: false,
-                                    message: format!("Requires human approval for {} actions", at_str),
-                                    risk_level: crate::models::RiskLevel::High,
-                                });
-                            }
-                        }
-                    }
-                }
-            }
-            "max_amount" => {
-                let max = rule.get("max")?.as_f64()?;
-                if let Some(payload_str) = &action.payload {
-                    if let Ok(payload_json) = serde_json::from_str::<serde_json::Value>(payload_str) {
-                        if let Some(amount) = payload_json.get("amount").and_then(|v| v.as_f64()) {
-                            if amount > max {
-                                return Some(RuleResult {
-                                    immediate_deny: true,
-                                    message: format!("Amount {} exceeds maximum {}", amount, max),
-                                    risk_level: crate::models::RiskLevel::High,
-                                });
-                            }
-                        }
-                    }
-                }
-            }
-            "regex_deny" => {
-                let patterns = rule.get("patterns")?.as_array()?;
-                let full_text = format!("{} {}", action.intent, action.payload.as_deref().unwrap_or(""));
-                for pat in patterns {
-                    if let Some(pat_str) = pat.as_str() {
-                        if let Ok(re) = regex::Regex::new(pat_str) {
-                            if re.is_match(&full_text) {
-                                return Some(RuleResult {
-                                    immediate_deny: true,
-                                    message: format!("Regex pattern matched: {}", pat_str),
-                                    risk_level: crate::models::RiskLevel::Critical,
-                                });
-                            }
-                        }
-                    }
-                }
-            }
-            "risk_flag" => {
-                let keywords = rule.get("keywords")?.as_array()?;
-                let intent_lower = action.intent.to_lowercase();
-                for kw in keywords {
-                    if let Some(kw_str) = kw.as_str() {
-                        if intent_lower.contains(&kw_str.to_lowercase()) {
-                            return Some(RuleResult {
-                                immediate_deny: false,
-                                message: format!("Risk flag: {}", kw_str),
-                                risk_level: crate::models::RiskLevel::Medium,
-                            });
-                        }
-                    }
-                }
-            }
-            "url_allowlist" => {
-                let allowed = rule.get("patterns")?.as_array()?;
-                if let Some(url) = &action.target_url {
-                    let is_allowed = allowed.iter().any(|p| p.as_str().is_some_and(|pat| url.contains(pat)));
-                    if !is_allowed {
-                        return Some(RuleResult {
-                            immediate_deny: true,
-                            message: format!("URL not in allowlist: {}", url),
-                            risk_level: crate::models::RiskLevel::High,
-                        });
-                    }
-                }
-            }
-            "url_blocklist" => {
-                let blocked = rule.get("patterns")?.as_array()?;
-                if let Some(url) = &action.target_url {
-                    for pat in blocked {
-                        if let Some(pat_str) = pat.as_str() {
-                            if url.contains(pat_str) {
-                                return Some(RuleResult {
-                                    immediate_deny: true,
-                                    message: format!("URL matches blocklist: {}", pat_str),
-                                    risk_level: crate::models::RiskLevel::Critical,
-                                });
-                            }
-                        }
-                    }
-                }
-            }
-            "time_window" => {
-                let now = chrono::Utc::now();
-                let start = rule.get("start_hour_utc").and_then(|v| v.as_i64()).unwrap_or(0);
-                let end = rule.get("end_hour_utc").and_then(|v| v.as_i64()).unwrap_or(24);
-                let hour = now.hour() as i64;
-                let allowed_days = rule.get("days").and_then(|v| v.as_array()).map(|days| {
-                    days.iter()
-                        .filter_map(|d| d.as_i64().map(|d| d as u32))
-                        .collect::<Vec<_>>()
-                });
-                let day_ok = match allowed_days {
-                    Some(ref days) => days.contains(&now.weekday().num_days_from_monday()),
-                    None => true,
-                };
-                if !day_ok || hour < start || hour >= end {
-                    return Some(RuleResult {
-                        immediate_deny: true,
-                        message: format!(
-                            "Action outside allowed time window (UTC {}-{}, allowed days: {:?})",
-                            start, end, allowed_days
-                        ),
-                        risk_level: crate::models::RiskLevel::Medium,
-                    });
-                }
-            }
-            "ip_allowlist" => {
-                if let Some(meta) = &action.metadata {
-                    if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(meta) {
-                        let source_ip = parsed.get("source_ip").and_then(|v| v.as_str());
-                        let allowed = rule.get("patterns")?.as_array()?;
-                        if let Some(ip) = source_ip {
-                            let is_allowed = allowed.iter().any(|p| p.as_str().is_some_and(|pat| ip.contains(pat)));
-                            if !is_allowed {
-                                return Some(RuleResult {
-                                    immediate_deny: true,
-                                    message: format!("Source IP {} not in allowlist", ip),
-                                    risk_level: crate::models::RiskLevel::High,
-                                });
-                            }
-                        }
-                    }
-                }
-            }
-            "concurrency_limit" | "budget_limit" | "trend_anomaly" => {
-                // Checked in evaluate_policies (async context needed)
-            }
-            "geofence" => {
-                if let Some(meta) = &action.metadata {
-                    if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(meta) {
-                        let country = parsed.get("country").and_then(|v| v.as_str());
-                        let blocked = rule.get("blocked_countries")?.as_array()?;
-                        if let Some(c) = country {
-                            if blocked
-                                .iter()
-                                .any(|b| b.as_str().map_or(false, |b| b.eq_ignore_ascii_case(c)))
-                            {
-                                return Some(RuleResult {
-                                    immediate_deny: true,
-                                    message: format!("Country {} is blocked by geofence policy", c),
-                                    risk_level: crate::models::RiskLevel::High,
-                                });
-                            }
-                        }
-                    }
-                }
-            }
-            _ => {}
-        }
-
-        None
     }
 
     async fn save_verdict(
