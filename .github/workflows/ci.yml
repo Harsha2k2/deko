@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [master]
+    branches: [master, diffWay]
   pull_request:
     branches: [master]
 
@@ -20,9 +20,6 @@ jobs:
         with:
           components: clippy, rustfmt
 
-      - name: Install cargo-audit
-        run: cargo install cargo-audit --locked 2>/dev/null || true
-
       - name: Cache dependencies
         uses: actions/cache@v4
         with:
@@ -36,17 +33,21 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Run clippy
-        run: cargo clippy -- -D warnings
+        run: cargo clippy --all-targets -- -D warnings
 
       - name: Run tests
         run: cargo test --verbose
         env:
-          DEKO_DATABASE_URL: sqlite::memory:
-          DEKO_ADMIN_PASSWORD: test
+          DEKO_DATABASE_URL: "sqlite::memory:"
+          DEKO_ADMIN_PASSWORD: testpassword
           DEKO_API_KEY_SECRET: test-secret-key-12345678
+          GEMINI_API_KEY: test-key
 
       - name: Run cargo-audit
-        run: cargo audit 2>/dev/null || echo "cargo-audit not available or found issues"
+        continue-on-error: true
+        run: |
+          cargo install cargo-audit --locked || exit 0
+          cargo audit
 
       - name: Run Trivy vulnerability scan
         uses: aquasecurity/trivy-action@master
@@ -55,34 +56,6 @@ jobs:
           scan-ref: '.'
           format: 'table'
           exit-code: '0'
-
-      - name: Build Docker image
-        run: docker build -t deko:latest .
-
-      - name: Log in to GitHub Container Registry
-        if: github.ref == 'refs/heads/master'
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Push Docker image
-        if: github.ref == 'refs/heads/master'
-        run: |
-          docker tag deko:latest ghcr.io/${{ github.repository }}:latest
-          docker tag deko:latest ghcr.io/${{ github.repository }}:${{ github.sha }}
-          docker push ghcr.io/${{ github.repository }} --all-tags
-          DEKO_PORT: "8000"
-          DEKO_ENV: dev
-          DEKO_ADMIN_PASSWORD: testpassword
-          DEKO_DATABASE_URL: "sqlite::memory:"
-          DEKO_API_KEY_SECRET: "test-secret-key-12345678"
-          GEMINI_API_KEY: "test-key"
-          DEKO_WEBHOOK_URL: ""
-
-      - name: Build
-        run: cargo build --release
 
   docker:
     runs-on: ubuntu-latest
@@ -101,9 +74,26 @@ jobs:
             -e DEKO_ADMIN_PASSWORD=testpassword \
             -e DEKO_DATABASE_URL="sqlite:///data/deko.db" \
             -e DEKO_API_KEY_SECRET="test-secret-key-12345678" \
-            -e GEMINI_API_KEY=test-key \
+            -e GEMINI_API_KEY=testkey12345 \
             deko:latest
-          sleep 5
+          sleep 8
           docker logs deko-test
+          curl -fsS http://localhost:8000/health/live
+          echo "container healthy"
           docker stop deko-test
           docker rm deko-test
+
+      - name: Log in to GitHub Container Registry
+        if: github.ref == 'refs/heads/master'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push Docker image
+        if: github.ref == 'refs/heads/master'
+        run: |
+          docker tag deko:latest ghcr.io/${{ github.repository }}:latest
+          docker tag deko:latest ghcr.io/${{ github.repository }}:${{ github.sha }}
+          docker push ghcr.io/${{ github.repository }} --all-tags
