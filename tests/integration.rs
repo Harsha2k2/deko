@@ -897,3 +897,39 @@ async fn test_forward_escalated_action_returns_423() {
         .unwrap();
     assert_eq!(resp.status(), 423);
 }
+
+#[tokio::test]
+async fn test_cors_preflight_respects_allowlist() {
+    let (pool, pool_set) = setup_test_db().await;
+    let config = test_config();
+    let app = create_router(
+        &config,
+        pool.clone(),
+        pool_set.clone(),
+        std::sync::Arc::new(deko::services::ws_broadcaster::WsBroadcaster::new(64)),
+    )
+    .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+    let client = reqwest::Client::new();
+    // dev profile allowlist includes localhost:8000
+    let resp = client
+        .request(reqwest::Method::OPTIONS, format!("http://127.0.0.1:{}/health", addr.port()))
+        .header("Origin", "http://localhost:8000")
+        .header("Access-Control-Request-Method", "GET")
+        .send()
+        .await
+        .unwrap();
+
+    let origin_header = resp
+        .headers()
+        .get("access-control-allow-origin")
+        .and_then(|v| v.to_str().ok());
+    assert_eq!(
+        origin_header,
+        Some("http://localhost:8000"),
+        "preflight must echo allowed origins"
+    );
+}

@@ -82,7 +82,39 @@ pub fn create_router(
 ) -> anyhow::Result<Router> {
     info!("Setting up router");
 
-    let cors = tower_http::cors::CorsLayer::very_permissive();
+    // cors honors the configured origin allowlist; "*" (dev default) stays
+    // permissive, prod profiles pin explicit origins
+    let cors = if config.allowed_origins.iter().any(|o| o == "*") {
+        tower_http::cors::CorsLayer::very_permissive()
+    } else {
+        let origins: Vec<axum::http::HeaderValue> = config
+            .allowed_origins
+            .iter()
+            .filter_map(|o| o.parse::<axum::http::HeaderValue>().ok())
+            .collect();
+        if origins.is_empty() {
+            // no origins configured means no browser access at all
+            tower_http::cors::CorsLayer::new()
+        } else {
+            tower_http::cors::CorsLayer::new()
+                .allow_origin(origins)
+                .allow_methods([
+                    axum::http::Method::GET,
+                    axum::http::Method::POST,
+                    axum::http::Method::PUT,
+                    axum::http::Method::DELETE,
+                    axum::http::Method::PATCH,
+                ])
+                .allow_headers([
+                    axum::http::header::CONTENT_TYPE,
+                    axum::http::header::AUTHORIZATION,
+                    "X-API-Key".parse().expect("static header name"),
+                    "X-Admin-Password".parse().expect("static header name"),
+                    "X-Admin-Confirm".parse().expect("static header name"),
+                ])
+                .allow_credentials(true)
+        }
+    };
 
     let body_limit = tower_http::limit::RequestBodyLimitLayer::new(config.max_request_body_kb * 1024);
 
