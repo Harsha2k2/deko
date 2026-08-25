@@ -13,7 +13,7 @@ pub struct UnifiedProvider {
     client: reqwest::Client,
     config: Arc<Config>,
     provider_type: LLMProvider,
-    bedrock_client: std::sync::Arc<std::sync::OnceLock<aws_sdk_bedrockruntime::Client>>,
+    bedrock_client: std::sync::Arc<tokio::sync::OnceCell<aws_sdk_bedrockruntime::Client>>,
 }
 
 // ---- OpenAI-compatible request types ----
@@ -266,7 +266,7 @@ impl UnifiedProvider {
             client,
             config,
             provider_type,
-            bedrock_client: std::sync::Arc::new(std::sync::OnceLock::new()),
+            bedrock_client: std::sync::Arc::new(tokio::sync::OnceCell::new()),
         }
     }
 
@@ -616,17 +616,19 @@ impl UnifiedProvider {
         let body = serde_json::to_vec(&req_body)
             .map_err(|e| AppError::OpenAI(format!("Bedrock serialization error: {}", e)))?;
 
-        let client = self.bedrock_client.get_or_init(|| {
-            let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime for Bedrock");
-            rt.block_on(async {
+        let client = self
+            .bedrock_client
+            .get_or_try_init(|| async {
                 let config = aws_config::defaults(BehaviorVersion::latest())
                     .region(aws_types::region::Region::new(self.config.bedrock_region.clone()))
                     .load()
                     .await;
                 let bedrock_config = aws_sdk_bedrockruntime::config::Builder::from(&config).build();
-                aws_sdk_bedrockruntime::Client::from_conf(bedrock_config)
+                Ok::<aws_sdk_bedrockruntime::Client, AppError>(aws_sdk_bedrockruntime::Client::from_conf(
+                    bedrock_config,
+                ))
             })
-        });
+            .await?;
 
         let response = client
             .invoke_model()

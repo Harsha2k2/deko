@@ -16,11 +16,57 @@ use crate::services::ws_broadcaster::WsBroadcaster;
 
 pub struct VerdictService {
     pub pool: DbPool,
-    pub provider: Box<dyn LLMProviderTrait>,
+    /// providers in fallback order; primary first, first success wins
+    pub providers: Vec<Box<dyn LLMProviderTrait>>,
     pub provider_metrics: Mutex<ProviderMetrics>,
     pub webhook: WebhookService,
     pub metrics: Arc<MetricsCollector>,
     pub ws_broadcaster: Arc<WsBroadcaster>,
+}
+
+/// which providers are actually usable given the configured credentials.
+fn provider_is_configured(config: &Config, p: &LLMProvider) -> bool {
+    match p {
+        LLMProvider::OpenAI => config.openai_api_key.is_some(),
+        LLMProvider::Gemini => config.gemini_api_key.is_some(),
+        LLMProvider::Anthropic => config.anthropic_api_key.is_some(),
+        LLMProvider::Ollama => !config.ollama_base_url.is_empty(),
+        LLMProvider::Azure => config.azure_api_key.is_some() && !config.azure_endpoint.is_empty(),
+        LLMProvider::Bedrock => {
+            // a default region string is not evidence of credentials;
+            // requiring explicit aws keys avoids surprise fallback attempts
+            std::env::var("AWS_ACCESS_KEY_ID").is_ok() && std::env::var("AWS_SECRET_ACCESS_KEY").is_ok()
+        }
+        LLMProvider::Custom => config.custom_provider_url.is_some(),
+    }
+}
+
+/// builds the fallback chain: default provider first, then every other
+/// configured provider in stable order. the README promises automatic
+/// failover; this is where that promise becomes true.
+fn build_provider_chain(config: &Config) -> Vec<Box<dyn LLMProviderTrait>> {
+    let candidates = [
+        LLMProvider::OpenAI,
+        LLMProvider::Gemini,
+        LLMProvider::Anthropic,
+        LLMProvider::Ollama,
+        LLMProvider::Azure,
+        LLMProvider::Bedrock,
+        LLMProvider::Custom,
+    ];
+
+    let mut order: Vec<LLMProvider> = vec![config.default_provider.clone()];
+    for p in candidates {
+        if !order.contains(&p) && provider_is_configured(config, &p) {
+            order.push(p);
+        }
+    }
+
+    let shared = Arc::new(config.clone());
+    order
+        .into_iter()
+        .map(|p| Box::new(UnifiedProvider::new(Arc::clone(&shared), p)) as Box<dyn LLMProviderTrait>)
+        .collect()
 }
 
 impl VerdictService {
@@ -31,12 +77,11 @@ impl VerdictService {
         ws_broadcaster: Arc<WsBroadcaster>,
     ) -> Self {
         let webhook = WebhookService::new(config.webhook_url.clone());
-        let config = Arc::new(config.clone());
-        let provider = Box::new(UnifiedProvider::new(Arc::clone(&config), config.default_provider));
+        let providers = build_provider_chain(config);
 
         Self {
-            pool: pool.clone(),
-            provider,
+            pool,
+            providers,
             provider_metrics: Mutex::new(ProviderMetrics::new()),
             webhook,
             metrics,
@@ -44,20 +89,19 @@ impl VerdictService {
         }
     }
 
-    /// builds a verdict service with an explicit provider (used by tests and
-    /// future fallback chains to control which provider handles analysis).
+    /// builds a verdict service with explicit providers (tests).
     #[allow(dead_code)]
-    pub fn with_provider(
+    pub fn with_providers(
         pool: DbPool,
         config: &Config,
         metrics: Arc<MetricsCollector>,
         ws_broadcaster: Arc<WsBroadcaster>,
-        provider: Box<dyn LLMProviderTrait>,
+        providers: Vec<Box<dyn LLMProviderTrait>>,
     ) -> Self {
         let webhook = WebhookService::new(config.webhook_url.clone());
         Self {
             pool,
-            provider,
+            providers,
             provider_metrics: Mutex::new(ProviderMetrics::new()),
             webhook,
             metrics,
@@ -202,8 +246,8 @@ impl VerdictService {
         Ok(())
     }
 
-    /// Spawn a background task that periodically pings the provider.
-    /// Marks it healthy again if it responds.
+    /// Spawn a background task that periodically pings the primary provider.
+    /// Marks the service healthy again if it responds.
     pub fn start_health_checks(self: &Arc<Self>, interval_secs: u64) {
         let svc = self.clone();
         tokio::spawn(async move {
@@ -213,13 +257,16 @@ impl VerdictService {
                 interval.tick().await;
                 let is_healthy = svc.provider_metrics.lock().unwrap().is_healthy();
                 if !is_healthy {
-                    match svc.provider.health_check().await {
+                    let Some(primary) = svc.providers.first() else {
+                        continue;
+                    };
+                    match primary.health_check().await {
                         Ok(_) => {
-                            info!("Provider {} is healthy again", svc.provider.model_name());
+                            info!("Provider {} is healthy again", primary.model_name());
                             svc.provider_metrics.lock().unwrap().set_healthy(true);
                         }
                         Err(e) => {
-                            warn!("Provider {} health check failed: {}", svc.provider.model_name(), e);
+                            warn!("Provider {} health check failed: {}", primary.model_name(), e);
                         }
                     }
                 }
@@ -231,60 +278,96 @@ impl VerdictService {
         let start = Instant::now();
         self.metrics.inc_llm_call();
 
-        let provider_name = self.provider.name();
-        let model_name = self.provider.model_name();
-
         crate::services::audit::record(
             &self.pool,
             Some(&action.id),
             "llm_call_started",
             &serde_json::json!({
-                "provider": provider_name,
-                "model": model_name,
+                "provider": self.providers.first().map(|p| p.name().to_string()),
+                "model": self.providers.first().map(|p| p.model_name()),
+                "chain_length": self.providers.len(),
             }),
         )
         .await
         .ok();
 
-        let result = self
-            .provider
-            .analyze_action(
-                &action.intent,
-                action.payload.as_deref(),
-                action.screenshot_base64.as_deref(),
-                policy_context,
-            )
-            .await;
+        let mut last_error: Option<String> = None;
 
-        let elapsed = start.elapsed().as_millis() as u64;
-        self.metrics.record_llm_latency(elapsed);
+        for (idx, provider) in self.providers.iter().enumerate() {
+            let result = provider
+                .analyze_action(
+                    &action.intent,
+                    action.payload.as_deref(),
+                    action.screenshot_base64.as_deref(),
+                    policy_context,
+                )
+                .await;
 
-        match result {
-            Ok(mut verdict) => {
-                let tokens_used = estimate_token_count(&action.intent, action.payload.as_deref(), &verdict.reason);
-                self.provider_metrics
-                    .lock()
-                    .unwrap()
-                    .record_request(elapsed as f64, tokens_used);
-                verdict.confidence = verdict.confidence.max(0.0).min(1.0);
-                verdict
-            }
-            Err(e) => {
-                warn!("Provider {} failed: {}", self.provider.model_name(), e);
-                self.metrics.inc_llm_error();
-                self.provider_metrics.lock().unwrap().set_healthy(false);
+            match result {
+                Ok(mut verdict) => {
+                    if idx > 0 {
+                        warn!(
+                            "Provider {} succeeded on fallback attempt {}/{}",
+                            provider.model_name(),
+                            idx + 1,
+                            self.providers.len()
+                        );
+                    }
+                    let elapsed = start.elapsed().as_millis() as u64;
+                    self.metrics.record_llm_latency(elapsed);
+                    let tokens_used = estimate_token_count(&action.intent, action.payload.as_deref(), &verdict.reason);
+                    self.provider_metrics
+                        .lock()
+                        .unwrap()
+                        .record_request(elapsed as f64, tokens_used);
+                    verdict.confidence = verdict.confidence.max(0.0).min(1.0);
+                    return verdict;
+                }
+                Err(e) => {
+                    warn!(
+                        "Provider {} failed: {} ({}/{} in chain)",
+                        provider.model_name(),
+                        e,
+                        idx + 1,
+                        self.providers.len()
+                    );
+                    last_error = Some(e.to_string());
 
-                VerdictResult {
-                    decision: crate::models::VerdictDecision::Denied,
-                    reason: format!("LLM provider failed: {}", e),
-                    risk_level: crate::models::RiskLevel::High,
-                    raw_response: String::new(),
-                    provider: provider_name,
-                    model: model_name,
-                    confidence: 0.0,
-                    reasoning_chain: Some("LLM provider failed; fail-closed deny".to_string()),
+                    // audit each failed hop so failover is visible in history
+                    crate::services::audit::record(
+                        &self.pool,
+                        Some(&action.id),
+                        "llm_provider_failed",
+                        &serde_json::json!({
+                            "provider": provider.name().to_string(),
+                            "attempt": idx + 1,
+                            "error": e.to_string(),
+                            "will_retry_with": self.providers.get(idx + 1).map(|p| p.name().to_string()),
+                        }),
+                    )
+                    .await
+                    .ok();
                 }
             }
+        }
+
+        // every provider failed: fail closed
+        self.metrics.inc_llm_error();
+        self.provider_metrics.lock().unwrap().set_healthy(false);
+
+        VerdictResult {
+            decision: crate::models::VerdictDecision::Denied,
+            reason: format!(
+                "LLM analysis unavailable after trying {} provider(s): {}",
+                self.providers.len(),
+                last_error.unwrap_or_else(|| "unknown error".to_string())
+            ),
+            risk_level: crate::models::RiskLevel::High,
+            raw_response: String::new(),
+            provider: LLMProvider::Custom, // no provider answered; marker value
+            model: "none".to_string(),
+            confidence: 0.0,
+            reasoning_chain: Some("all providers exhausted; fail-closed deny".to_string()),
         }
     }
 

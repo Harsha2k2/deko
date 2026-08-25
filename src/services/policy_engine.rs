@@ -57,7 +57,11 @@ pub const ASYNC_RULE_TYPES: &[&str] = &[
 ];
 
 fn outcome(deny: bool, level: RiskLevel, message: String) -> Option<RuleOutcome> {
-    Some(RuleOutcome { immediate_deny: deny, message, risk_level: level })
+    Some(RuleOutcome {
+        immediate_deny: deny,
+        message,
+        risk_level: level,
+    })
 }
 
 /// stable-sorts rules by their optional numeric `priority` field.
@@ -94,7 +98,11 @@ fn merge_outcomes(results: Vec<RuleOutcome>) -> Option<RuleOutcome> {
         .unwrap_or(RiskLevel::Low);
     Some(RuleOutcome {
         immediate_deny: results.iter().any(|r| r.immediate_deny),
-        message: results.iter().map(|r| r.message.as_str()).collect::<Vec<_>>().join("; "),
+        message: results
+            .iter()
+            .map(|r| r.message.as_str())
+            .collect::<Vec<_>>()
+            .join("; "),
         risk_level,
     })
 }
@@ -130,11 +138,7 @@ fn evaluate_simple(rule: &serde_json::Value, input: &RuleInput, rule_type: &str)
             for kw in keywords {
                 if let Some(kw_str) = kw.as_str() {
                     if intent_lower.contains(&kw_str.to_lowercase()) {
-                        return outcome(
-                            true,
-                            RiskLevel::Critical,
-                            format!("Denied keyword match: {}", kw_str),
-                        );
+                        return outcome(true, RiskLevel::Critical, format!("Denied keyword match: {}", kw_str));
                     }
                 }
             }
@@ -163,7 +167,11 @@ fn evaluate_simple(rule: &serde_json::Value, input: &RuleInput, rule_type: &str)
             let payload_json: serde_json::Value = serde_json::from_str(payload_str).ok()?;
             let amount = payload_json.get("amount").and_then(|v| v.as_f64())?;
             if amount > max {
-                return outcome(true, RiskLevel::High, format!("Amount {} exceeds maximum {}", amount, max));
+                return outcome(
+                    true,
+                    RiskLevel::High,
+                    format!("Amount {} exceeds maximum {}", amount, max),
+                );
             }
             None
         }
@@ -174,11 +182,7 @@ fn evaluate_simple(rule: &serde_json::Value, input: &RuleInput, rule_type: &str)
                 if let Some(pat_str) = pat.as_str() {
                     if let Ok(re) = regex::Regex::new(pat_str) {
                         if re.is_match(&full_text) {
-                            return outcome(
-                                true,
-                                RiskLevel::Critical,
-                                format!("Regex pattern matched: {}", pat_str),
-                            );
+                            return outcome(true, RiskLevel::Critical, format!("Regex pattern matched: {}", pat_str));
                         }
                     }
                 }
@@ -214,11 +218,7 @@ fn evaluate_simple(rule: &serde_json::Value, input: &RuleInput, rule_type: &str)
             for pat in blocked {
                 if let Some(pat_str) = pat.as_str() {
                     if url.contains(pat_str) {
-                        return outcome(
-                            true,
-                            RiskLevel::Critical,
-                            format!("URL matches blocklist: {}", pat_str),
-                        );
+                        return outcome(true, RiskLevel::Critical, format!("URL matches blocklist: {}", pat_str));
                     }
                 }
             }
@@ -229,10 +229,11 @@ fn evaluate_simple(rule: &serde_json::Value, input: &RuleInput, rule_type: &str)
             let start = rule.get("start_hour_utc").and_then(|v| v.as_i64()).unwrap_or(0);
             let end = rule.get("end_hour_utc").and_then(|v| v.as_i64()).unwrap_or(24);
             let hour = now.hour() as i64;
-            let allowed_days = rule
-                .get("days")
-                .and_then(|v| v.as_array())
-                .map(|days| days.iter().filter_map(|d| d.as_i64().map(|d| d as u32)).collect::<Vec<_>>());
+            let allowed_days = rule.get("days").and_then(|v| v.as_array()).map(|days| {
+                days.iter()
+                    .filter_map(|d| d.as_i64().map(|d| d as u32))
+                    .collect::<Vec<_>>()
+            });
             let day_ok = match allowed_days {
                 Some(ref days) => days.contains(&now.weekday().num_days_from_monday()),
                 None => true,
@@ -265,7 +266,10 @@ fn evaluate_simple(rule: &serde_json::Value, input: &RuleInput, rule_type: &str)
             let parsed: serde_json::Value = serde_json::from_str(meta).ok()?;
             let country = parsed.get("country").and_then(|v| v.as_str())?;
             let blocked = rule.get("blocked_countries")?.as_array()?;
-            if blocked.iter().any(|b| b.as_str().map_or(false, |b| b.eq_ignore_ascii_case(country))) {
+            if blocked
+                .iter()
+                .any(|b| b.as_str().map_or(false, |b| b.eq_ignore_ascii_case(country)))
+            {
                 return outcome(
                     true,
                     RiskLevel::High,
@@ -300,7 +304,13 @@ mod tests {
     use serde_json::json;
 
     fn input(intent: &str) -> RuleInput<'_> {
-        RuleInput { intent, payload: None, target_url: None, target_method: Some("POST"), metadata: None }
+        RuleInput {
+            intent,
+            payload: None,
+            target_url: None,
+            target_method: Some("POST"),
+            metadata: None,
+        }
     }
 
     #[test]
@@ -355,7 +365,11 @@ mod tests {
         ];
         sort_rules(&mut rules);
         let types: Vec<&str> = rules.iter().map(|r| r["type"].as_str().unwrap()).collect();
-        assert_eq!(types, vec!["b", "c", "d", "a"], "missing priority = 0, stable within tie");
+        assert_eq!(
+            types,
+            vec!["b", "c", "d", "a"],
+            "missing priority = 0, stable within tie"
+        );
     }
 
     #[test]
@@ -378,8 +392,20 @@ mod tests {
     #[test]
     fn url_blocklist_and_allowlist_semantics() {
         let block = json!({"type": "url_blocklist", "patterns": ["evil.com"]});
-        let hit = RuleInput { intent: "x", payload: None, target_url: Some("https://evil.com/x"), target_method: None, metadata: None };
-        let miss = RuleInput { intent: "x", payload: None, target_url: Some("https://ok.com/x"), target_method: None, metadata: None };
+        let hit = RuleInput {
+            intent: "x",
+            payload: None,
+            target_url: Some("https://evil.com/x"),
+            target_method: None,
+            metadata: None,
+        };
+        let miss = RuleInput {
+            intent: "x",
+            payload: None,
+            target_url: Some("https://ok.com/x"),
+            target_method: None,
+            metadata: None,
+        };
         assert!(evaluate_rule(&block, &hit).unwrap().immediate_deny);
         assert!(evaluate_rule(&block, &miss).is_none());
 

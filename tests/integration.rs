@@ -89,12 +89,12 @@ async fn test_mock_llm_approved() {
     let mock = MockLLMProvider::approved();
     let call_count = mock.call_count.clone();
 
-    let vs = VerdictService::with_provider(
+    let vs = VerdictService::with_providers(
         pool.clone(),
         &test_config(),
         Arc::new(MetricsCollector::new()),
         std::sync::Arc::new(deko::services::ws_broadcaster::WsBroadcaster::new(64)),
-        Box::new(mock),
+        vec![Box::new(mock)],
     );
 
     vs.process_action(&action_id).await.unwrap();
@@ -122,12 +122,12 @@ async fn test_mock_llm_denied() {
     let mock = MockLLMProvider::denied();
     let call_count = mock.call_count.clone();
 
-    let vs = VerdictService::with_provider(
+    let vs = VerdictService::with_providers(
         pool.clone(),
         &test_config(),
         Arc::new(MetricsCollector::new()),
         std::sync::Arc::new(deko::services::ws_broadcaster::WsBroadcaster::new(64)),
-        Box::new(mock),
+        vec![Box::new(mock)],
     );
 
     vs.process_action(&action_id).await.unwrap();
@@ -155,12 +155,12 @@ async fn test_mock_llm_escalated() {
     let mock = MockLLMProvider::escalated();
     let call_count = mock.call_count.clone();
 
-    let vs = VerdictService::with_provider(
+    let vs = VerdictService::with_providers(
         pool.clone(),
         &test_config(),
         Arc::new(MetricsCollector::new()),
         std::sync::Arc::new(deko::services::ws_broadcaster::WsBroadcaster::new(64)),
-        Box::new(mock),
+        vec![Box::new(mock)],
     );
 
     vs.process_action(&action_id).await.unwrap();
@@ -187,12 +187,12 @@ async fn test_mock_llm_failure_fails_closed() {
 
     let mock = MockLLMProvider::failing("Simulated LLM failure");
 
-    let vs = VerdictService::with_provider(
+    let vs = VerdictService::with_providers(
         pool.clone(),
         &test_config(),
         Arc::new(MetricsCollector::new()),
         std::sync::Arc::new(deko::services::ws_broadcaster::WsBroadcaster::new(64)),
-        Box::new(mock),
+        vec![Box::new(mock)],
     );
 
     vs.process_action(&action_id).await.unwrap();
@@ -284,12 +284,12 @@ async fn test_audit_log_created_for_verdict() {
         .await
         .unwrap();
 
-    let vs = VerdictService::with_provider(
+    let vs = VerdictService::with_providers(
         pool.clone(),
         &test_config(),
         Arc::new(MetricsCollector::new()),
         std::sync::Arc::new(deko::services::ws_broadcaster::WsBroadcaster::new(64)),
-        Box::new(mock),
+        vec![Box::new(mock)],
     );
 
     vs.process_action(&action_id).await.unwrap();
@@ -1053,4 +1053,100 @@ async fn test_policy_test_endpoint_fails_closed_on_unknown_rule() {
     let body: serde_json::Value = resp.json().await.unwrap();
     assert_eq!(body["matched"], true);
     assert_eq!(body["immediate_deny"], true, "unknown rule types must fail closed");
+}
+
+// ---- llm provider fallback chain ----
+
+use deko::test_helpers::MockLLMProvider as ChainMock;
+
+#[tokio::test]
+async fn test_provider_fallback_succeeds_when_primary_fails() {
+    let (pool, _pool_set) = setup_test_db().await;
+
+    let (agent_id, _) = TestFixtures::create_agent(&pool, "fallback-agent").await.unwrap();
+    let action_id = TestFixtures::create_action(&pool, &agent_id, "View dashboard")
+        .await
+        .unwrap();
+
+    let broken = ChainMock::failing("primary provider down");
+    let healthy = ChainMock::approved();
+    let healthy_calls = healthy.call_count.clone();
+
+    let vs = VerdictService::with_providers(
+        pool.clone(),
+        &test_config(),
+        Arc::new(MetricsCollector::new()),
+        std::sync::Arc::new(deko::services::ws_broadcaster::WsBroadcaster::new(64)),
+        vec![Box::new(broken), Box::new(healthy)],
+    );
+
+    vs.process_action(&action_id).await.unwrap();
+
+    // fallback provider must have been called exactly once
+    assert_eq!(healthy_calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+
+    // outcome comes from the fallback: approved, not fail-closed deny
+    let status: (String,) = sqlx::query_as("SELECT status FROM actions WHERE id = ?")
+        .bind(&action_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(status.0, "approved");
+
+    // the failed hop must be visible in the audit trail
+    let failures: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM audit_log WHERE action_id = ? AND event_type = 'llm_provider_failed'")
+            .bind(&action_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(failures.0, 1, "provider failure must be audited");
+}
+
+#[tokio::test]
+async fn test_all_providers_failing_denies_fail_closed() {
+    let (pool, _pool_set) = setup_test_db().await;
+
+    let (agent_id, _) = TestFixtures::create_agent(&pool, "allfail-agent").await.unwrap();
+    let action_id = TestFixtures::create_action(&pool, &agent_id, "Transfer funds")
+        .await
+        .unwrap();
+
+    let vs = VerdictService::with_providers(
+        pool.clone(),
+        &test_config(),
+        Arc::new(MetricsCollector::new()),
+        std::sync::Arc::new(deko::services::ws_broadcaster::WsBroadcaster::new(64)),
+        vec![Box::new(ChainMock::failing("one")), Box::new(ChainMock::failing("two"))],
+    );
+
+    vs.process_action(&action_id).await.unwrap();
+
+    // no provider answered: action denied, never approved
+    let status: (String,) = sqlx::query_as("SELECT status FROM actions WHERE id = ?")
+        .bind(&action_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(status.0, "denied");
+
+    let decision: (String,) =
+        sqlx::query_as("SELECT decision FROM verdicts WHERE action_id = ? ORDER BY created_at DESC LIMIT 1")
+            .bind(&action_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(decision.0, "denied");
+
+    let reason: (String,) =
+        sqlx::query_as("SELECT reason FROM verdicts WHERE action_id = ? ORDER BY created_at DESC LIMIT 1")
+            .bind(&action_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(
+        reason.0.contains("2 provider"),
+        "reason should mention exhaustion across chain, got: {}",
+        reason.0
+    );
 }
