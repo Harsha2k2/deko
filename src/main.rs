@@ -11,6 +11,9 @@ use std::sync::Arc;
 
 use config::{init_tracing, Config};
 use db::{init_db, run_migrations};
+
+#[allow(unused_imports)]
+use dotenvy::dotenv;
 use routes::create_router;
 use services::{ws_broadcaster::WsBroadcaster, ActionProcessor, MetricsCollector, VerdictService};
 use tracing::{error, info, warn};
@@ -32,6 +35,9 @@ use tracing::{error, info, warn};
 /// - **Immutable Audit**: Every decision is permanently recorded
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // hydrate process env from .env if present; real env always wins
+    // (kept out of Config::from_env so tests never depend on cwd files)
+    dotenvy::dotenv().ok();
     let config = Config::from_env()?;
     init_tracing(&config.env);
 

@@ -8,6 +8,7 @@ use crate::error::{AppError, Result};
 #[derive(Deserialize, ToSchema)]
 pub struct CreatePolicyRequest {
     pub name: String,
+    #[serde(default)]
     pub description: String,
     pub rules: serde_json::Value,
 }

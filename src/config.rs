@@ -225,8 +225,6 @@ impl Environment {
 
 impl Config {
     pub fn from_env() -> Result<Self> {
-        dotenvy::dotenv().ok();
-
         let port = std::env::var("DEKO_PORT")
             .ok()
             .and_then(|p| p.parse::<u16>().ok())

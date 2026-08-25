@@ -29,7 +29,7 @@ export default function Policies() {
   const [policies, setPolicies] = useState<Policy[]>([])
   const [loading, setLoading] = useState(true)
   const [name, setName] = useState('')
-  const [rules, setRules] = useState('{}')
+  const [rules, setRules] = useState('[]')
   const [creating, setCreating] = useState(false)
 
   const [simIntent, setSimIntent] = useState('')
@@ -50,12 +50,20 @@ export default function Policies() {
   const handleCreate = async (e: FormEvent) => {
     e.preventDefault()
     if (!name.trim()) return
+    let parsedRules: unknown
+    try {
+      parsedRules = JSON.parse(rules)
+      if (!Array.isArray(parsedRules)) throw new Error('rules must be a JSON array of rule objects')
+    } catch (err) {
+      toast.error(err instanceof Error ? `Invalid rules JSON: ${err.message}` : 'Invalid rules JSON')
+      return
+    }
     setCreating(true)
     try {
-      await api.createPolicy({ name: name.trim(), rules_json: rules, active: true, priority: 5 })
+      await api.createPolicy({ name: name.trim(), rules: parsedRules })
       toast.success('Policy created')
       setName('')
-      setRules('{}')
+      setRules('[]')
       fetchPolicies()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to create policy')
@@ -77,7 +85,7 @@ export default function Policies() {
   const handleTest = async (policy: Policy) => {
     try {
       const result = await api.testPolicy({
-        rules: policy.rules_json,
+        rules: policy.rules,
         intent: 'test-action',
         payload: '{}',
       })
@@ -256,7 +264,9 @@ export default function Policies() {
                   policies.map((policy) => (
                     <TableRow key={policy.id}>
                       <TableCell className="font-medium">{policy.name}</TableCell>
-                      <TableCell>{policy.priority}</TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {Array.isArray(policy.rules) ? `${policy.rules.length} rule(s)` : '-'}
+                      </TableCell>
                       <TableCell>
                         <Badge variant={policy.active ? 'approved' : 'denied'}>
                           {policy.active ? 'Active' : 'Inactive'}
