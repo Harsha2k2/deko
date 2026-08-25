@@ -105,7 +105,7 @@ async fn main() -> anyhow::Result<()> {
         config.action_ttl_secs,
         10,
     );
-    let shutdown = processor.shutdown.clone();
+    let processor_shutdown = processor.shutdown.clone();
 
     let processor_handle = tokio::spawn(async move {
         processor.run().await;
@@ -118,20 +118,40 @@ async fn main() -> anyhow::Result<()> {
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
 
-    let server_handle = tokio::spawn(async move {
-        axum::serve(listener, app).await.unwrap();
-    });
+    // ctrl-c or SIGTERM (k8s/docker stop) both drain in-flight requests
+    let shutdown_signal = async {
+        let ctrl_c = tokio::signal::ctrl_c();
+        #[cfg(unix)]
+        {
+            let mut sigterm =
+                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                    .expect("failed to install SIGTERM handler");
+            tokio::select! {
+                _ = ctrl_c => {},
+                _ = sigterm.recv() => {},
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            ctrl_c.await.expect("Failed to install signal handler");
+        }
+    };
 
-    let shutdown_signal = tokio::signal::ctrl_c();
-    shutdown_signal.await.expect("Failed to install signal handler");
+    axum::serve(listener, app)
+        .with_graceful_shutdown(async move {
+            shutdown_signal.await;
+            info!("shutdown signal received; draining in-flight requests");
+            // stop the processor loop first so no new work is claimed while
+            // the http layer finishes its in-flight responses
+            processor_shutdown.store(true, std::sync::atomic::Ordering::Relaxed);
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        })
+        .await?;
 
-    info!("Shutdown signal received");
-    shutdown.store(true, std::sync::atomic::Ordering::Relaxed);
-
+    info!("server drained; stopping background processor");
     processor_handle.abort();
-    server_handle.abort();
 
-    info!("Deko shut down gracefully");
+    info!("deko shut down gracefully");
 
     Ok(())
 }
