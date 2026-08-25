@@ -70,6 +70,18 @@ async fn main() -> anyhow::Result<()> {
     let (pool, pool_set) = init_db(&config).await?;
     run_migrations(&pool).await?;
 
+    // chain any audit rows written before the hash columns existed
+    match services::audit::backfill_unchained(&pool).await {
+        Ok(n) if n > 0 => info!("audit chain: backfilled {} legacy entries", n),
+        Ok(_) => {}
+        Err(e) => {
+            // fail closed on tamper-evidence setup: refuse to run with a
+            // broken audit trail
+            error!("audit chain backfill failed: {}", e);
+            return Err(e.into());
+        }
+    }
+
     let metrics = Arc::new(MetricsCollector::new());
     metrics.set_pool_config(10, 5);
     let ws_broadcaster = Arc::new(WsBroadcaster::new(256));

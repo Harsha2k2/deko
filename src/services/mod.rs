@@ -1,4 +1,5 @@
 pub mod attachment;
+pub mod audit;
 pub mod egress;
 pub mod llm;
 pub mod metrics;

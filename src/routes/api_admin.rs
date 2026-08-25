@@ -138,8 +138,7 @@ pub async fn action_timeline(State(pool): State<DbPool>) -> Result<Json<serde_js
          GROUP BY date(created_at) ORDER BY day",
     )
     .fetch_all(&pool)
-    .await
-    .map_err(AppError::Database)?;
+    .await?;
 
     Ok(Json(json!(rows
         .into_iter()
@@ -311,21 +310,17 @@ pub async fn override_action(
         .await
         .map_err(AppError::Database)?;
 
-    sqlx::query("INSERT INTO audit_log (id, action_id, event_type, details) VALUES (?, ?, ?, ?)")
-        .bind(uuid::Uuid::new_v4().to_string())
-        .bind(&id)
-        .bind("admin_override")
-        .bind(
-            json!({
-                "previous_status": current_status,
-                "decision": body.decision,
-                "reason": body.reason,
-            })
-            .to_string(),
-        )
-        .execute(&pool)
-        .await
-        .map_err(AppError::Database)?;
+    crate::services::audit::record(
+        &pool,
+        Some(&id),
+        "admin_override",
+        &json!({
+            "previous_status": current_status,
+            "decision": body.decision,
+            "reason": body.reason,
+        }),
+    )
+    .await?;
 
     Ok(Json(OverrideResponse {
         success: true,
@@ -382,8 +377,7 @@ pub async fn list_policies(State(pool): State<DbPool>) -> Result<Json<Vec<Policy
         "SELECT id, name, description, rules, active, created_at, updated_at FROM policies ORDER BY created_at DESC",
     )
     .fetch_all(&pool)
-    .await
-    .map_err(AppError::Database)?;
+    .await?;
 
     Ok(Json(
         rows.into_iter()

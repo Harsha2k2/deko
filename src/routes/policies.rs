@@ -49,13 +49,13 @@ pub async fn create_policy(
         .await
         .map_err(AppError::Database)?;
 
-    sqlx::query("INSERT INTO audit_log (id, action_id, event_type, details) VALUES (?, NULL, ?, ?)")
-        .bind(uuid::Uuid::new_v4().to_string())
-        .bind("policy_created")
-        .bind(serde_json::json!({ "policy_id": id, "name": req.name }).to_string())
-        .execute(&pool)
-        .await
-        .map_err(AppError::Database)?;
+    crate::services::audit::record(
+        &pool,
+        None,
+        "policy_created",
+        &serde_json::json!({ "policy_id": id, "name": req.name }),
+    )
+    .await?;
 
     Ok(Json(serde_json::json!({ "id": id, "name": req.name, "active": true })))
 }
@@ -75,8 +75,7 @@ pub async fn list_policies(
         "SELECT id, name, description, rules, active, created_at, updated_at FROM policies ORDER BY created_at DESC",
     )
     .fetch_all(&pool)
-    .await
-    .map_err(AppError::Database)?;
+    .await?;
 
     let policies = policies
         .into_iter()
@@ -155,13 +154,7 @@ pub async fn update_policy(
     q = q.bind(&id);
     q.execute(&pool).await.map_err(AppError::Database)?;
 
-    sqlx::query("INSERT INTO audit_log (id, action_id, event_type, details) VALUES (?, NULL, ?, ?)")
-        .bind(uuid::Uuid::new_v4().to_string())
-        .bind("policy_updated")
-        .bind(serde_json::json!({ "policy_id": id }).to_string())
-        .execute(&pool)
-        .await
-        .map_err(AppError::Database)?;
+    crate::services::audit::record(&pool, None, "policy_updated", &serde_json::json!({  "policy_id": id })).await?;
 
     Ok(Json(serde_json::json!({ "updated": true, "id": id })))
 }
@@ -187,13 +180,7 @@ pub async fn delete_policy(
         return Err(AppError::NotFound("Policy not found".into()));
     }
 
-    sqlx::query("INSERT INTO audit_log (id, action_id, event_type, details) VALUES (?, NULL, ?, ?)")
-        .bind(uuid::Uuid::new_v4().to_string())
-        .bind("policy_deleted")
-        .bind(serde_json::json!({ "policy_id": id }).to_string())
-        .execute(&pool)
-        .await
-        .map_err(AppError::Database)?;
+    crate::services::audit::record(&pool, None, "policy_deleted", &serde_json::json!({  "policy_id": id })).await?;
 
     Ok(Json(serde_json::json!({ "deleted": true, "id": id })))
 }
@@ -293,8 +280,7 @@ pub async fn simulate_policies(
         "SELECT id, name, description, rules, active, created_at, updated_at FROM policies WHERE active = 1",
     )
     .fetch_all(&pool)
-    .await
-    .map_err(AppError::Database)?;
+    .await?;
 
     let mut results = Vec::new();
 

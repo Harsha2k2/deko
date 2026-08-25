@@ -49,14 +49,13 @@ pub async fn register_agent(
         .await
         .map_err(AppError::Database)?;
 
-    sqlx::query("INSERT INTO audit_log (id, action_id, event_type, details) VALUES (?, ?, ?, ?)")
-        .bind(uuid::Uuid::new_v4().to_string())
-        .bind::<Option<String>>(None)
-        .bind("agent_registered")
-        .bind(serde_json::json!({ "agent_id": id, "agent_name": req.name }))
-        .execute(&pool)
-        .await
-        .map_err(AppError::Database)?;
+    crate::services::audit::record(
+        &pool,
+        None,
+        "agent_registered",
+        &serde_json::json!({ "agent_id": id, "agent_name": req.name }),
+    )
+    .await?;
 
     let now = chrono::Utc::now();
 
@@ -101,21 +100,20 @@ pub async fn revoke_agent(
     .bind(&req.reason)
     .bind(&req.agent_id)
     .execute(&pool)
-    .await
-    .map_err(AppError::Database)?;
+    .await?;
 
     if result.rows_affected() == 0 {
         return Err(AppError::NotFound("Agent not found".into()));
     }
 
-    sqlx::query("INSERT INTO audit_log (id, action_id, event_type, details) VALUES (?, ?, ?, ?)")
-        .bind(uuid::Uuid::new_v4().to_string())
-        .bind(&req.agent_id)
-        .bind("agent_revoked")
-        .bind(serde_json::json!({"reason": req.reason}))
-        .execute(&pool)
-        .await
-        .ok();
+    crate::services::audit::record(
+        &pool,
+        Some(&req.agent_id),
+        "agent_revoked",
+        &serde_json::json!({"reason": req.reason}),
+    )
+    .await
+    .ok();
 
     Ok(Json(serde_json::json!({ "revoked": true, "agent_id": req.agent_id })))
 }
@@ -153,8 +151,7 @@ pub async fn list_agents(
         "SELECT id, name, api_key_hash, active, created_at, deactivated_reason, deactivated_at, api_key_expires_at FROM agents ORDER BY created_at DESC",
     )
     .fetch_all(&pool)
-    .await
-    .map_err(AppError::Database)?;
+    .await?;
 
     let agents = agents
         .into_iter()
@@ -216,14 +213,13 @@ pub async fn rotate_agent_key(
         return Err(AppError::NotFound("Agent not found or inactive".into()));
     }
 
-    sqlx::query("INSERT INTO audit_log (id, action_id, event_type, details) VALUES (?, ?, ?, ?)")
-        .bind(uuid::Uuid::new_v4().to_string())
-        .bind::<Option<String>>(None)
-        .bind("api_key_rotated")
-        .bind(serde_json::json!({ "agent_id": req.agent_id }))
-        .execute(&pool)
-        .await
-        .map_err(AppError::Database)?;
+    crate::services::audit::record(
+        &pool,
+        None,
+        "api_key_rotated",
+        &serde_json::json!({ "agent_id": req.agent_id }),
+    )
+    .await?;
 
     let now = chrono::Utc::now();
 
@@ -316,8 +312,7 @@ pub async fn list_api_keys(
     )
     .bind(&req.agent_id)
     .fetch_all(&pool)
-    .await
-    .map_err(AppError::Database)?;
+    .await?;
 
     Ok(Json(
         keys.into_iter()

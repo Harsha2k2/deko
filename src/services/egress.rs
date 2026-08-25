@@ -66,19 +66,14 @@ impl ValidatedUrl {
             .host_str()
             .ok_or_else(|| "target url has no host".to_string())?
             .to_string();
-        let host = raw_host
-            .trim_start_matches('[')
-            .trim_end_matches(']')
-            .to_string();
+        let host = raw_host.trim_start_matches('[').trim_end_matches(']').to_string();
         let port = self.0.port_or_known_default().unwrap_or(80);
 
         // std resolver is blocking; hop off the runtime
-        let addrs = tokio::task::spawn_blocking(move || {
-            (host.as_str(), port).to_socket_addrs()
-        })
-        .await
-        .map_err(|e| format!("resolve join error: {}", e))?
-        .map_err(|e| format!("dns resolution failed: {}", e))?;
+        let addrs = tokio::task::spawn_blocking(move || (host.as_str(), port).to_socket_addrs())
+            .await
+            .map_err(|e| format!("resolve join error: {}", e))?
+            .map_err(|e| format!("dns resolution failed: {}", e))?;
 
         let mut saw_any = false;
         for addr in addrs {
@@ -115,7 +110,7 @@ fn is_permitted_v4(ip: Ipv4Addr) -> bool {
         || (o[0] == 192 && o[1] == 0 && o[2] == 2)     // test-net-1
         || (o[0] == 198 && (o[1], o[2]) == (51, 100))  // test-net-2
         || (o[0] == 203 && o[1] == 0 && o[2] == 113)   // test-net-3
-        || o[0] >= 224)                          // multicast + reserved
+        || o[0] >= 224) // multicast + reserved
 }
 
 fn is_permitted_v6(ip: Ipv6Addr) -> bool {
@@ -177,11 +172,11 @@ mod tests {
             "http://169.254.169.254/latest/meta-data/", // aws metadata
             "http://100.64.1.1/",                       // cgnat
             "http://0.0.0.0/",
-            "http://224.0.0.1/",                        // multicast
+            "http://224.0.0.1/", // multicast
             "http://[::1]/",
             "http://[fe80::1]/",
             "http://[fc00::1]/",
-            "http://[::ffff:127.0.0.1]/",               // mapped loopback
+            "http://[::ffff:127.0.0.1]/", // mapped loopback
             "http://[::ffff:10.0.0.1]/",
         ] {
             assert!(ValidatedUrl::parse(bad).is_err(), "should reject {}", bad);

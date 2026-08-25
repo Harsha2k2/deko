@@ -108,14 +108,13 @@ pub async fn override_action(
         .await
         .map_err(AppError::Database)?;
 
-    sqlx::query("INSERT INTO audit_log (id, action_id, event_type, details) VALUES (?, ?, ?, ?)")
-        .bind(uuid::Uuid::new_v4().to_string())
-        .bind(&id)
-        .bind("admin_override")
-        .bind(serde_json::json!({ "previous_status": format!("{:?}", action.status).to_lowercase(), "reason": req.reason }).to_string())
-        .execute(&mut *tx)
-        .await
-        .map_err(AppError::Database)?;
+    crate::services::audit::insert_chained_tx(
+        &mut tx,
+        Some(&id),
+        "admin_override",
+        &serde_json::json!({ "previous_status": format!("{:?}", action.status).to_lowercase(), "reason": req.reason }),
+    )
+    .await?;
 
     tx.commit().await.map_err(AppError::Database)?;
 
@@ -153,13 +152,12 @@ pub async fn bulk_override_actions(
             .await
             .map_err(AppError::Database)?;
         if result.rows_affected() > 0 {
-            sqlx::query(
-                "INSERT INTO audit_log (id, action_id, event_type, details) VALUES (?, ?, 'action_overridden', ?)",
+            crate::services::audit::record(
+                &pool,
+                Some(action_id),
+                "action_overridden",
+                &serde_json::json!({"reason": req.reason, "bulk": true}),
             )
-            .bind(uuid::Uuid::new_v4().to_string())
-            .bind(action_id)
-            .bind(serde_json::json!({"reason": req.reason, "bulk": true}))
-            .execute(&pool)
             .await
             .ok();
             overridden += 1;
@@ -182,10 +180,7 @@ pub async fn export_actions_csv(
     }
     query.push_str(" ORDER BY a.created_at DESC LIMIT 1000");
 
-    let mut q = sqlx::query_as::<
-        _,
-        (String, String, String, String, Option<String>, Option<String>, String),
-    >(&query);
+    let mut q = sqlx::query_as::<_, (String, String, String, String, Option<String>, Option<String>, String)>(&query);
     if !status_filter.is_empty() {
         q = q.bind(status_filter);
     }
@@ -206,6 +201,26 @@ pub async fn export_actions_csv(
     }
 
     Ok(csv)
+}
+
+/// walks the audit hash chain and reports whether it is intact.
+pub async fn verify_audit_chain(
+    State(pool): State<crate::db::DbPool>,
+    headers: axum::http::HeaderMap,
+) -> Result<axum::response::Response> {
+    // admin auth runs as a layer on this router, but double-check the
+    // strongest signal explicitly since this endpoint is a security report
+    let provided = headers
+        .get("X-Admin-Password")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    let expected = std::env::var("DEKO_ADMIN_PASSWORD").unwrap_or_default();
+    if !expected.is_empty() && provided != expected {
+        return Err(AppError::Forbidden("Admin access required".into()));
+    }
+
+    let report = crate::services::audit::verify_chain(&pool).await?;
+    Ok(Json(report).into_response())
 }
 
 #[derive(Deserialize)]

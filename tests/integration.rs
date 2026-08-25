@@ -743,21 +743,10 @@ async fn start_forward_app() -> (std::net::SocketAddr, deko::db::DbPool, String,
     (addr, pool, agent_id, api_key)
 }
 
-async fn create_action_with_target(
-    pool: &deko::db::DbPool,
-    agent_id: &str,
-    target_url: Option<&str>,
-) -> String {
-    TestFixtures::create_action_with_details(
-        pool,
-        agent_id,
-        "test forward action",
-        None,
-        target_url,
-        Some("GET"),
-    )
-    .await
-    .unwrap()
+async fn create_action_with_target(pool: &deko::db::DbPool, agent_id: &str, target_url: Option<&str>) -> String {
+    TestFixtures::create_action_with_details(pool, agent_id, "test forward action", None, target_url, Some("GET"))
+        .await
+        .unwrap()
 }
 
 async fn approve_action(pool: &deko::db::DbPool, action_id: &str) {
@@ -916,7 +905,10 @@ async fn test_cors_preflight_respects_allowlist() {
     let client = reqwest::Client::new();
     // dev profile allowlist includes localhost:8000
     let resp = client
-        .request(reqwest::Method::OPTIONS, format!("http://127.0.0.1:{}/health", addr.port()))
+        .request(
+            reqwest::Method::OPTIONS,
+            format!("http://127.0.0.1:{}/health", addr.port()),
+        )
         .header("Origin", "http://localhost:8000")
         .header("Access-Control-Request-Method", "GET")
         .send()
@@ -932,4 +924,97 @@ async fn test_cors_preflight_respects_allowlist() {
         Some("http://localhost:8000"),
         "preflight must echo allowed origins"
     );
+}
+
+// ---- audit hash chain ----
+
+#[tokio::test]
+async fn test_audit_chain_verify_detects_tampering() {
+    let (pool, pool_set) = setup_test_db().await;
+    let config = test_config();
+    let app = create_router(
+        &config,
+        pool.clone(),
+        pool_set.clone(),
+        std::sync::Arc::new(deko::services::ws_broadcaster::WsBroadcaster::new(64)),
+    )
+    .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+    // generate some audited activity
+    let (agent_id, api_key) = TestFixtures::create_agent(&pool, "audit-agent").await.unwrap();
+    let client = reqwest::Client::new();
+    for i in 0..3 {
+        let resp = client
+            .post(format!("http://127.0.0.1:{}/action", addr.port()))
+            .header("X-API-Key", &api_key)
+            .json(&serde_json::json!({ "intent": format!("action number {}", i) }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 201);
+    }
+    let _ = agent_id;
+
+    // intact chain verifies
+    let resp = client
+        .get(format!("http://127.0.0.1:{}/admin/audit/verify", addr.port()))
+        .header("X-Admin-Password", "testpassword")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(body["valid"], true, "fresh chain must verify");
+    let entries_before = body["entries_checked"].as_u64().unwrap();
+    assert!(entries_before >= 3);
+
+    // tamper with one entry in the middle of the chain
+    let middle_id: (String,) = sqlx::query_as("SELECT id FROM audit_log ORDER BY rowid ASC LIMIT 1 OFFSET 1")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE audit_log SET details = '{\"evil\": true}' WHERE id = ?")
+        .bind(&middle_id.0)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let resp = client
+        .get(format!("http://127.0.0.1:{}/admin/audit/verify", addr.port()))
+        .header("X-Admin-Password", "testpassword")
+        .send()
+        .await
+        .unwrap();
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(body["valid"], false, "tampered chain must fail verification");
+    assert_eq!(body["first_broken_id"], middle_id.0);
+}
+
+#[tokio::test]
+async fn test_audit_chain_backfill_makes_legacy_rows_verifiable() {
+    let (pool, _pool_set) = setup_test_db().await;
+
+    // simulate legacy rows written before hash columns existed
+    for i in 0..3 {
+        sqlx::query("INSERT INTO audit_log (id, action_id, event_type, details) VALUES (?, NULL, 'legacy_event', ?)")
+            .bind(uuid::Uuid::new_v4().to_string())
+            .bind(format!("{{\"i\":{}}}", i))
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+
+    // startup backfill chains them
+    let backfilled = deko::services::audit::backfill_unchained(&pool).await.unwrap();
+    assert_eq!(backfilled, 3);
+    // idempotent on second run
+    let second = deko::services::audit::backfill_unchained(&pool).await.unwrap();
+    assert_eq!(second, 0);
+
+    let report = deko::services::audit::verify_chain(&pool).await.unwrap();
+    assert_eq!(report.valid, true);
+    assert_eq!(report.entries_checked, 3);
 }

@@ -235,17 +235,17 @@ impl VerdictService {
         let provider_name = self.provider.name();
         let model_name = self.provider.model_name();
 
-        sqlx::query("INSERT INTO audit_log (id, action_id, event_type, details) VALUES (?, ?, ?, ?)")
-            .bind(uuid::Uuid::new_v4().to_string())
-            .bind(&action.id)
-            .bind("llm_call_started")
-            .bind(serde_json::json!({
+        crate::services::audit::record(
+            &self.pool,
+            Some(&action.id),
+            "llm_call_started",
+            &serde_json::json!({
                 "provider": provider_name,
                 "model": model_name,
-            }))
-            .execute(&self.pool)
-            .await
-            .ok();
+            }),
+        )
+        .await
+        .ok();
 
         let result = self
             .provider
@@ -315,20 +315,20 @@ impl VerdictService {
                         context_parts.push(format!("{}: {}", policy.name, result.message));
 
                         // Record hit statistic
-                        sqlx::query("INSERT INTO audit_log (id, action_id, event_type, details) VALUES (?, ?, ?, ?)")
-                            .bind(uuid::Uuid::new_v4().to_string())
-                            .bind(&action.id)
-                            .bind("policy_matched")
-                            .bind(serde_json::json!({
+                        crate::services::audit::record(
+                            &self.pool,
+                            Some(&action.id),
+                            "policy_matched",
+                            &serde_json::json!({
                                 "policy_id": policy.id,
                                 "policy_name": policy.name,
                                 "rule_type": rule.get("type"),
                                 "message": result.message,
                                 "dry_run": is_dry_run,
-                            }))
-                            .execute(&self.pool)
-                            .await
-                            .ok();
+                            }),
+                        )
+                        .await
+                        .ok();
 
                         if result.immediate_deny && !is_dry_run {
                             return Ok(PolicyEvaluation {
@@ -843,18 +843,9 @@ impl VerdictService {
     }
 
     async fn audit(&self, action_id: &str, event_type: &str, details: &serde_json::Value) -> Result<()> {
-        sqlx::query("INSERT INTO audit_log (id, action_id, event_type, details) VALUES (?, ?, ?, ?)")
-            .bind(uuid::Uuid::new_v4().to_string())
-            .bind(action_id)
-            .bind(event_type)
-            .bind(details)
-            .execute(&self.pool)
-            .await
-            .map_err(AppError::Database)?;
-        Ok(())
+        crate::services::audit::record(&self.pool, Some(action_id), event_type, details).await
     }
 
-    #[cfg(not(feature = "postgres"))]
     async fn audit_tx(
         &self,
         tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
@@ -862,34 +853,7 @@ impl VerdictService {
         event_type: &str,
         details: &serde_json::Value,
     ) -> Result<()> {
-        sqlx::query("INSERT INTO audit_log (id, action_id, event_type, details) VALUES (?, ?, ?, ?)")
-            .bind(uuid::Uuid::new_v4().to_string())
-            .bind(action_id)
-            .bind(event_type)
-            .bind(details)
-            .execute(&mut **tx)
-            .await
-            .map_err(AppError::Database)?;
-        Ok(())
-    }
-
-    #[cfg(feature = "postgres")]
-    async fn audit_tx(
-        &self,
-        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-        action_id: &str,
-        event_type: &str,
-        details: &serde_json::Value,
-    ) -> Result<()> {
-        sqlx::query("INSERT INTO audit_log (id, action_id, event_type, details) VALUES ($1, $2, $3, $4)")
-            .bind(uuid::Uuid::new_v4().to_string())
-            .bind(action_id)
-            .bind(event_type)
-            .bind(details)
-            .execute(&mut **tx)
-            .await
-            .map_err(AppError::Database)?;
-        Ok(())
+        crate::services::audit::insert_chained_tx(tx, Some(action_id), event_type, details).await
     }
 }
 
