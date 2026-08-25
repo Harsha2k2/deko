@@ -1,9 +1,9 @@
 use deko::config::Config;
 use deko::db::{init_db, run_migrations};
 use deko::routes::create_router;
-use deko::services::{VerdictService, MetricsCollector};
-use deko::models::ActionStatus;
-use deko::test_helpers::{MockLLMProvider, TestFixtures, TestApp};
+use deko::services::{MetricsCollector, VerdictService};
+
+use deko::test_helpers::{MockLLMProvider, TestApp, TestFixtures};
 use std::sync::Arc;
 
 fn test_config() -> Config {
@@ -33,7 +33,13 @@ async fn setup_test_db() -> (deko::db::DbPool, Arc<deko::db::DbPoolSet>) {
 async fn test_health_endpoint() {
     let (pool, pool_set) = setup_test_db().await;
     let config = test_config();
-    let app = create_router(&config, pool.clone(), pool_set.clone()).unwrap();
+    let app = create_router(
+        &config,
+        pool.clone(),
+        pool_set.clone(),
+        std::sync::Arc::new(deko::services::ws_broadcaster::WsBroadcaster::new(64)),
+    )
+    .unwrap();
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -57,7 +63,9 @@ async fn test_action_lifecycle() {
     let (pool, _pool_set) = setup_test_db().await;
 
     let (agent_id, _api_key) = TestFixtures::create_agent(&pool, "test_agent").await.unwrap();
-    let action_id = TestFixtures::create_action(&pool, &agent_id, "Buy 10 shares of AAPL").await.unwrap();
+    let action_id = TestFixtures::create_action(&pool, &agent_id, "Buy 10 shares of AAPL")
+        .await
+        .unwrap();
 
     let row: (String, String) = sqlx::query_as("SELECT id, status FROM actions WHERE id = ?")
         .bind(&action_id)
@@ -74,15 +82,20 @@ async fn test_mock_llm_approved() {
     let (pool, _pool_set) = setup_test_db().await;
 
     let (agent_id, _) = TestFixtures::create_agent(&pool, "test_agent").await.unwrap();
-    let action_id = TestFixtures::create_action(&pool, &agent_id, "View dashboard").await.unwrap();
+    let action_id = TestFixtures::create_action(&pool, &agent_id, "View dashboard")
+        .await
+        .unwrap();
 
     let mock = MockLLMProvider::approved();
     let call_count = mock.call_count.clone();
 
-    let mut vs = VerdictService::new(pool.clone(), &test_config(), Arc::new(MetricsCollector::new()));
-    vs.providers.clear();
-    vs.providers.push(Box::new(mock));
-    vs.default_provider_idx = 0;
+    let vs = VerdictService::with_provider(
+        pool.clone(),
+        &test_config(),
+        Arc::new(MetricsCollector::new()),
+        std::sync::Arc::new(deko::services::ws_broadcaster::WsBroadcaster::new(64)),
+        Box::new(mock),
+    );
 
     vs.process_action(&action_id).await.unwrap();
 
@@ -102,15 +115,20 @@ async fn test_mock_llm_denied() {
     let (pool, _pool_set) = setup_test_db().await;
 
     let (agent_id, _) = TestFixtures::create_agent(&pool, "test_agent").await.unwrap();
-    let action_id = TestFixtures::create_action(&pool, &agent_id, "Delete all records").await.unwrap();
+    let action_id = TestFixtures::create_action(&pool, &agent_id, "Delete all records")
+        .await
+        .unwrap();
 
     let mock = MockLLMProvider::denied();
     let call_count = mock.call_count.clone();
 
-    let mut vs = VerdictService::new(pool.clone(), &test_config(), Arc::new(MetricsCollector::new()));
-    vs.providers.clear();
-    vs.providers.push(Box::new(mock));
-    vs.default_provider_idx = 0;
+    let vs = VerdictService::with_provider(
+        pool.clone(),
+        &test_config(),
+        Arc::new(MetricsCollector::new()),
+        std::sync::Arc::new(deko::services::ws_broadcaster::WsBroadcaster::new(64)),
+        Box::new(mock),
+    );
 
     vs.process_action(&action_id).await.unwrap();
 
@@ -130,15 +148,20 @@ async fn test_mock_llm_escalated() {
     let (pool, _pool_set) = setup_test_db().await;
 
     let (agent_id, _) = TestFixtures::create_agent(&pool, "test_agent").await.unwrap();
-    let action_id = TestFixtures::create_action(&pool, &agent_id, "Transfer $50,000").await.unwrap();
+    let action_id = TestFixtures::create_action(&pool, &agent_id, "Transfer $50,000")
+        .await
+        .unwrap();
 
     let mock = MockLLMProvider::escalated();
     let call_count = mock.call_count.clone();
 
-    let mut vs = VerdictService::new(pool.clone(), &test_config(), Arc::new(MetricsCollector::new()));
-    vs.providers.clear();
-    vs.providers.push(Box::new(mock));
-    vs.default_provider_idx = 0;
+    let vs = VerdictService::with_provider(
+        pool.clone(),
+        &test_config(),
+        Arc::new(MetricsCollector::new()),
+        std::sync::Arc::new(deko::services::ws_broadcaster::WsBroadcaster::new(64)),
+        Box::new(mock),
+    );
 
     vs.process_action(&action_id).await.unwrap();
 
@@ -158,14 +181,19 @@ async fn test_mock_llm_failure_fails_closed() {
     let (pool, _pool_set) = setup_test_db().await;
 
     let (agent_id, _) = TestFixtures::create_agent(&pool, "test_agent").await.unwrap();
-    let action_id = TestFixtures::create_action(&pool, &agent_id, "Some action").await.unwrap();
+    let action_id = TestFixtures::create_action(&pool, &agent_id, "Some action")
+        .await
+        .unwrap();
 
     let mock = MockLLMProvider::failing("Simulated LLM failure");
 
-    let mut vs = VerdictService::new(pool.clone(), &test_config(), Arc::new(MetricsCollector::new()));
-    vs.providers.clear();
-    vs.providers.push(Box::new(mock));
-    vs.default_provider_idx = 0;
+    let vs = VerdictService::with_provider(
+        pool.clone(),
+        &test_config(),
+        Arc::new(MetricsCollector::new()),
+        std::sync::Arc::new(deko::services::ws_broadcaster::WsBroadcaster::new(64)),
+        Box::new(mock),
+    );
 
     vs.process_action(&action_id).await.unwrap();
 
@@ -182,12 +210,21 @@ async fn test_mock_llm_failure_fails_closed() {
 async fn test_policy_deny_keyword() {
     let (pool, _pool_set) = setup_test_db().await;
 
-    TestFixtures::create_deny_keyword_policy(&pool, "No Delete All", &["delete_all", "delete everything"]).await.unwrap();
+    TestFixtures::create_deny_keyword_policy(&pool, "No Delete All", &["delete_all", "delete everything"])
+        .await
+        .unwrap();
 
     let (agent_id, _) = TestFixtures::create_agent(&pool, "test_agent").await.unwrap();
-    let action_id = TestFixtures::create_action(&pool, &agent_id, "I want to delete_all records").await.unwrap();
+    let action_id = TestFixtures::create_action(&pool, &agent_id, "I want to delete_all records")
+        .await
+        .unwrap();
 
-    let vs = VerdictService::new(pool.clone(), &test_config(), Arc::new(MetricsCollector::new()));
+    let vs = VerdictService::new(
+        pool.clone(),
+        &test_config(),
+        Arc::new(MetricsCollector::new()),
+        std::sync::Arc::new(deko::services::ws_broadcaster::WsBroadcaster::new(64)),
+    );
     vs.process_action(&action_id).await.unwrap();
 
     let status: (String,) = sqlx::query_as("SELECT status FROM actions WHERE id = ?")
@@ -203,18 +240,28 @@ async fn test_policy_deny_keyword() {
 async fn test_policy_max_amount() {
     let (pool, _pool_set) = setup_test_db().await;
 
-    TestFixtures::create_max_amount_policy(&pool, "Transfer Limit", 10000.0).await.unwrap();
+    TestFixtures::create_max_amount_policy(&pool, "Transfer Limit", 10000.0)
+        .await
+        .unwrap();
 
     let (agent_id, _) = TestFixtures::create_agent(&pool, "test_agent").await.unwrap();
     let action_id = TestFixtures::create_action_with_details(
-        &pool, &agent_id,
+        &pool,
+        &agent_id,
         "Transfer funds",
         Some(r#"{"amount": 50000}"#),
         Some("https://bank.example.com/transfer"),
         Some("POST"),
-    ).await.unwrap();
+    )
+    .await
+    .unwrap();
 
-    let vs = VerdictService::new(pool.clone(), &test_config(), Arc::new(MetricsCollector::new()));
+    let vs = VerdictService::new(
+        pool.clone(),
+        &test_config(),
+        Arc::new(MetricsCollector::new()),
+        std::sync::Arc::new(deko::services::ws_broadcaster::WsBroadcaster::new(64)),
+    );
     vs.process_action(&action_id).await.unwrap();
 
     let status: (String,) = sqlx::query_as("SELECT status FROM actions WHERE id = ?")
@@ -233,12 +280,17 @@ async fn test_audit_log_created_for_verdict() {
     let mock = MockLLMProvider::approved();
 
     let (agent_id, _) = TestFixtures::create_agent(&pool, "test_agent").await.unwrap();
-    let action_id = TestFixtures::create_action(&pool, &agent_id, "View data").await.unwrap();
+    let action_id = TestFixtures::create_action(&pool, &agent_id, "View data")
+        .await
+        .unwrap();
 
-    let mut vs = VerdictService::new(pool.clone(), &test_config(), Arc::new(MetricsCollector::new()));
-    vs.providers.clear();
-    vs.providers.push(Box::new(mock));
-    vs.default_provider_idx = 0;
+    let vs = VerdictService::with_provider(
+        pool.clone(),
+        &test_config(),
+        Arc::new(MetricsCollector::new()),
+        std::sync::Arc::new(deko::services::ws_broadcaster::WsBroadcaster::new(64)),
+        Box::new(mock),
+    );
 
     vs.process_action(&action_id).await.unwrap();
 
@@ -256,9 +308,16 @@ async fn test_fail_closed_on_real_llm_failure() {
     let (pool, _pool_set) = setup_test_db().await;
 
     let (agent_id, _) = TestFixtures::create_agent(&pool, "test_agent").await.unwrap();
-    let action_id = TestFixtures::create_action(&pool, &agent_id, "Test action").await.unwrap();
+    let action_id = TestFixtures::create_action(&pool, &agent_id, "Test action")
+        .await
+        .unwrap();
 
-    let vs = VerdictService::new(pool.clone(), &test_config(), Arc::new(MetricsCollector::new()));
+    let vs = VerdictService::new(
+        pool.clone(),
+        &test_config(),
+        Arc::new(MetricsCollector::new()),
+        std::sync::Arc::new(deko::services::ws_broadcaster::WsBroadcaster::new(64)),
+    );
     let _ = vs.process_action(&action_id).await;
 
     let status: (String,) = sqlx::query_as("SELECT status FROM actions WHERE id = ?")
@@ -271,16 +330,14 @@ async fn test_fail_closed_on_real_llm_failure() {
 }
 
 #[test]
-fn test_config_validation_fails_missing_secret() {
-}
+fn test_config_validation_fails_missing_secret() {}
 
 #[test]
 fn test_config_default_values() {
     let result = Config::from_env();
     if let Ok(config) = result {
-        assert!(config.port <= 65535);
         assert_eq!(config.max_screenshot_size_mb, 10);
-        assert_eq!(config.rate_limit_per_minute, 60);
+        assert_eq!(config.rate_limit_per_minute, 120);
     }
 }
 
@@ -301,20 +358,38 @@ async fn test_test_app_helper() {
 async fn test_all_health_endpoints() {
     let (pool, pool_set) = setup_test_db().await;
     let config = test_config();
-    let app = create_router(&config, pool.clone(), pool_set.clone()).unwrap();
+    let app = create_router(
+        &config,
+        pool.clone(),
+        pool_set.clone(),
+        std::sync::Arc::new(deko::services::ws_broadcaster::WsBroadcaster::new(64)),
+    )
+    .unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
     let client = reqwest::Client::new();
 
-    let live = client.get(format!("http://127.0.0.1:{}/health/live", addr.port())).send().await.unwrap();
+    let live = client
+        .get(format!("http://127.0.0.1:{}/health/live", addr.port()))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(live.status(), 200);
 
-    let ready = client.get(format!("http://127.0.0.1:{}/health/ready", addr.port())).send().await.unwrap();
+    let ready = client
+        .get(format!("http://127.0.0.1:{}/health/ready", addr.port()))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(ready.status(), 200);
 
-    let health = client.get(format!("http://127.0.0.1:{}/health", addr.port())).send().await.unwrap();
+    let health = client
+        .get(format!("http://127.0.0.1:{}/health", addr.port()))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(health.status(), 200);
 
     let body: serde_json::Value = health.json().await.unwrap();
@@ -326,7 +401,13 @@ async fn test_all_health_endpoints() {
 async fn test_admin_login_valid_password() {
     let (pool, pool_set) = setup_test_db().await;
     let config = test_config();
-    let app = create_router(&config, pool.clone(), pool_set.clone()).unwrap();
+    let app = create_router(
+        &config,
+        pool.clone(),
+        pool_set.clone(),
+        std::sync::Arc::new(deko::services::ws_broadcaster::WsBroadcaster::new(64)),
+    )
+    .unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
@@ -335,7 +416,7 @@ async fn test_admin_login_valid_password() {
 
     let resp = client
         .post(format!("http://127.0.0.1:{}/admin/login", addr.port()))
-        .json(&serde_json::json!({"password": "testpassword"}))
+        .form(&serde_json::json!({"password": "testpassword"}))
         .send()
         .await
         .unwrap();
@@ -346,7 +427,13 @@ async fn test_admin_login_valid_password() {
 async fn test_admin_login_invalid_password() {
     let (pool, pool_set) = setup_test_db().await;
     let config = test_config();
-    let app = create_router(&config, pool.clone(), pool_set.clone()).unwrap();
+    let app = create_router(
+        &config,
+        pool.clone(),
+        pool_set.clone(),
+        std::sync::Arc::new(deko::services::ws_broadcaster::WsBroadcaster::new(64)),
+    )
+    .unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
@@ -355,7 +442,7 @@ async fn test_admin_login_invalid_password() {
 
     let resp = client
         .post(format!("http://127.0.0.1:{}/admin/login", addr.port()))
-        .json(&serde_json::json!({"password": "wrongpassword"}))
+        .form(&serde_json::json!({"password": "wrongpassword"}))
         .send()
         .await
         .unwrap();
@@ -366,7 +453,13 @@ async fn test_admin_login_invalid_password() {
 async fn test_admin_dashboard_requires_auth() {
     let (pool, pool_set) = setup_test_db().await;
     let config = test_config();
-    let app = create_router(&config, pool.clone(), pool_set.clone()).unwrap();
+    let app = create_router(
+        &config,
+        pool.clone(),
+        pool_set.clone(),
+        std::sync::Arc::new(deko::services::ws_broadcaster::WsBroadcaster::new(64)),
+    )
+    .unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
@@ -374,7 +467,7 @@ async fn test_admin_dashboard_requires_auth() {
     let client = reqwest::Client::new();
 
     let resp = client
-        .get(format!("http://127.0.0.1:{}/admin", addr.port()))
+        .get(format!("http://127.0.0.1:{}/api/admin/dashboard", addr.port()))
         .send()
         .await
         .unwrap();
@@ -385,7 +478,13 @@ async fn test_admin_dashboard_requires_auth() {
 async fn test_admin_dashboard_with_valid_password() {
     let (pool, pool_set) = setup_test_db().await;
     let config = test_config();
-    let app = create_router(&config, pool.clone(), pool_set.clone()).unwrap();
+    let app = create_router(
+        &config,
+        pool.clone(),
+        pool_set.clone(),
+        std::sync::Arc::new(deko::services::ws_broadcaster::WsBroadcaster::new(64)),
+    )
+    .unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
@@ -393,7 +492,7 @@ async fn test_admin_dashboard_with_valid_password() {
     let client = reqwest::Client::new();
 
     let resp = client
-        .get(format!("http://127.0.0.1:{}/admin", addr.port()))
+        .get(format!("http://127.0.0.1:{}/api/admin/dashboard", addr.port()))
         .header("X-Admin-Password", "testpassword")
         .send()
         .await
@@ -405,7 +504,13 @@ async fn test_admin_dashboard_with_valid_password() {
 async fn test_action_create_via_http_with_valid_key() {
     let (pool, pool_set) = setup_test_db().await;
     let config = test_config();
-    let app = create_router(&config, pool.clone(), pool_set.clone()).unwrap();
+    let app = create_router(
+        &config,
+        pool.clone(),
+        pool_set.clone(),
+        std::sync::Arc::new(deko::services::ws_broadcaster::WsBroadcaster::new(64)),
+    )
+    .unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
@@ -436,7 +541,13 @@ async fn test_action_create_via_http_with_valid_key() {
 async fn test_action_create_via_http_without_key_returns_401() {
     let (pool, pool_set) = setup_test_db().await;
     let config = test_config();
-    let app = create_router(&config, pool.clone(), pool_set.clone()).unwrap();
+    let app = create_router(
+        &config,
+        pool.clone(),
+        pool_set.clone(),
+        std::sync::Arc::new(deko::services::ws_broadcaster::WsBroadcaster::new(64)),
+    )
+    .unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
@@ -456,7 +567,13 @@ async fn test_action_create_via_http_without_key_returns_401() {
 async fn test_action_status_returns_pending_initially() {
     let (pool, pool_set) = setup_test_db().await;
     let config = test_config();
-    let app = create_router(&config, pool.clone(), pool_set.clone()).unwrap();
+    let app = create_router(
+        &config,
+        pool.clone(),
+        pool_set.clone(),
+        std::sync::Arc::new(deko::services::ws_broadcaster::WsBroadcaster::new(64)),
+    )
+    .unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
@@ -464,7 +581,9 @@ async fn test_action_status_returns_pending_initially() {
     let client = reqwest::Client::new();
 
     let (agent_id, api_key) = TestFixtures::create_agent(&pool, "status-test-agent").await.unwrap();
-    let action_id = TestFixtures::create_action(&pool, &agent_id, "Test action").await.unwrap();
+    let action_id = TestFixtures::create_action(&pool, &agent_id, "Test action")
+        .await
+        .unwrap();
 
     let resp = client
         .get(format!("http://127.0.0.1:{}/action/{}/status", addr.port(), action_id))
@@ -483,7 +602,13 @@ async fn test_action_status_returns_pending_initially() {
 async fn test_action_filter_by_status() {
     let (pool, pool_set) = setup_test_db().await;
     let config = test_config();
-    let app = create_router(&config, pool.clone(), pool_set.clone()).unwrap();
+    let app = create_router(
+        &config,
+        pool.clone(),
+        pool_set.clone(),
+        std::sync::Arc::new(deko::services::ws_broadcaster::WsBroadcaster::new(64)),
+    )
+    .unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
@@ -491,8 +616,12 @@ async fn test_action_filter_by_status() {
     let client = reqwest::Client::new();
 
     let (agent_id, api_key) = TestFixtures::create_agent(&pool, "filter-test-agent").await.unwrap();
-    TestFixtures::create_action(&pool, &agent_id, "First action").await.unwrap();
-    TestFixtures::create_action(&pool, &agent_id, "Second action").await.unwrap();
+    TestFixtures::create_action(&pool, &agent_id, "First action")
+        .await
+        .unwrap();
+    TestFixtures::create_action(&pool, &agent_id, "Second action")
+        .await
+        .unwrap();
 
     let resp = client
         .get(format!("http://127.0.0.1:{}/actions?status=pending", addr.port()))
@@ -507,7 +636,13 @@ async fn test_action_filter_by_status() {
 async fn test_metrics_endpoint() {
     let (pool, pool_set) = setup_test_db().await;
     let config = test_config();
-    let app = create_router(&config, pool.clone(), pool_set.clone()).unwrap();
+    let app = create_router(
+        &config,
+        pool.clone(),
+        pool_set.clone(),
+        std::sync::Arc::new(deko::services::ws_broadcaster::WsBroadcaster::new(64)),
+    )
+    .unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
@@ -530,7 +665,13 @@ async fn test_metrics_endpoint() {
 async fn test_admin_register_agent_via_http() {
     let (pool, pool_set) = setup_test_db().await;
     let config = test_config();
-    let app = create_router(&config, pool.clone(), pool_set.clone()).unwrap();
+    let app = create_router(
+        &config,
+        pool.clone(),
+        pool_set.clone(),
+        std::sync::Arc::new(deko::services::ws_broadcaster::WsBroadcaster::new(64)),
+    )
+    .unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
@@ -555,7 +696,13 @@ async fn test_admin_register_agent_via_http() {
 async fn test_swagger_docs_served() {
     let (pool, pool_set) = setup_test_db().await;
     let config = test_config();
-    let app = create_router(&config, pool.clone(), pool_set.clone()).unwrap();
+    let app = create_router(
+        &config,
+        pool.clone(),
+        pool_set.clone(),
+        std::sync::Arc::new(deko::services::ws_broadcaster::WsBroadcaster::new(64)),
+    )
+    .unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 

@@ -1,9 +1,9 @@
 use axum::body::Body;
+use axum::extract::Multipart;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::Response;
 use axum::Json;
-use axum::extract::Multipart;
 
 use crate::db::DbPool;
 use crate::error::{AppError, Result};
@@ -30,20 +30,24 @@ pub async fn upload_attachment(
             .map(|s| s.to_string())
             .unwrap_or_else(|| "application/octet-stream".to_string());
 
-        let data = field.bytes().await.map_err(|_| AppError::BadRequest("Failed to read file data".into()))?;
+        let data = field
+            .bytes()
+            .await
+            .map_err(|_| AppError::BadRequest("Failed to read file data".into()))?;
 
         if data.len() > 10 * 1024 * 1024 {
-            return Err(AppError::BadRequest(format!("File too large: {} bytes (max 10MB)", data.len())));
+            return Err(AppError::BadRequest(format!(
+                "File too large: {} bytes (max 10MB)",
+                data.len()
+            )));
         }
 
         // Verify the action belongs to this agent
-        let owner: Option<(String,)> = sqlx::query_as(
-            "SELECT agent_id FROM actions WHERE id = ?"
-        )
-        .bind(&action_id)
-        .fetch_optional(&pool)
-        .await
-        .map_err(AppError::Database)?;
+        let owner: Option<(String,)> = sqlx::query_as("SELECT agent_id FROM actions WHERE id = ?")
+            .bind(&action_id)
+            .fetch_optional(&pool)
+            .await
+            .map_err(AppError::Database)?;
 
         match owner {
             Some((aid,)) if aid == agent.id => {}
@@ -70,13 +74,11 @@ pub async fn list_attachments(
 ) -> Result<Json<Vec<serde_json::Value>>> {
     let svc = AttachmentService::new();
 
-    let owner: Option<(String,)> = sqlx::query_as(
-        "SELECT agent_id FROM actions WHERE id = ?"
-    )
-    .bind(&action_id)
-    .fetch_optional(&pool)
-    .await
-    .map_err(AppError::Database)?;
+    let owner: Option<(String,)> = sqlx::query_as("SELECT agent_id FROM actions WHERE id = ?")
+        .bind(&action_id)
+        .fetch_optional(&pool)
+        .await
+        .map_err(AppError::Database)?;
 
     match owner {
         Some((aid,)) if aid == agent.id => {}

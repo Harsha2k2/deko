@@ -1,8 +1,8 @@
-use std::sync::Arc;
 use deko::config::{Config, Environment, LLMProvider};
 use deko::error::AppError;
 use deko::models::{ActionStatus, RiskLevel, VerdictDecision};
 use deko::services::metrics::{MetricsCollector, RateLimiter};
+use std::sync::Arc;
 
 // F009: Config tests
 #[test]
@@ -20,8 +20,16 @@ fn test_llm_provider_display() {
 }
 
 // F019: DB connection test
+fn set_required_env() {
+    std::env::set_var("DEKO_ADMIN_PASSWORD", "testpassword");
+    std::env::set_var("DEKO_API_KEY_SECRET", "test-secret-key-12345678");
+    std::env::set_var("DEKO_DATABASE_URL", "sqlite::memory:");
+    std::env::set_var("GEMINI_API_KEY", "test-key");
+}
+
 #[tokio::test]
 async fn test_db_connection() {
+    set_required_env();
     std::env::set_var("DEKO_DATABASE_URL", "sqlite::memory:");
     let config = Config::from_env().unwrap();
     let (pool, _pool_set) = deko::db::init_db(&config).await.unwrap();
@@ -35,7 +43,10 @@ fn test_action_status_serialization() {
     assert_eq!(serde_json::to_string(&ActionStatus::Pending).unwrap(), "\"pending\"");
     assert_eq!(serde_json::to_string(&ActionStatus::Approved).unwrap(), "\"approved\"");
     assert_eq!(serde_json::to_string(&ActionStatus::Denied).unwrap(), "\"denied\"");
-    assert_eq!(serde_json::to_string(&ActionStatus::Escalated).unwrap(), "\"escalated\"");
+    assert_eq!(
+        serde_json::to_string(&ActionStatus::Escalated).unwrap(),
+        "\"escalated\""
+    );
 }
 
 #[test]
@@ -48,9 +59,15 @@ fn test_risk_level_serialization() {
 
 #[test]
 fn test_verdict_decision_serialization() {
-    assert_eq!(serde_json::to_string(&VerdictDecision::Approved).unwrap(), "\"approved\"");
+    assert_eq!(
+        serde_json::to_string(&VerdictDecision::Approved).unwrap(),
+        "\"approved\""
+    );
     assert_eq!(serde_json::to_string(&VerdictDecision::Denied).unwrap(), "\"denied\"");
-    assert_eq!(serde_json::to_string(&VerdictDecision::Escalate).unwrap(), "\"escalate\"");
+    assert_eq!(
+        serde_json::to_string(&VerdictDecision::Escalate).unwrap(),
+        "\"escalate\""
+    );
 }
 
 #[test]
@@ -187,11 +204,9 @@ fn check_deny_keyword(rules: &serde_json::Value, intent: &str) -> bool {
 #[test]
 fn test_parse_verdict_json_approved() {
     let json = r#"{"decision": "approved", "reason": "Safe action", "risk_level": "low"}"#;
-    let result = deko::services::llm::parse_verdict_json(
-        json,
-        deko::config::LLMProvider::Gemini,
-        "gemini-2.0-flash".into(),
-    ).unwrap();
+    let result =
+        deko::services::llm::parse_verdict_json(json, deko::config::LLMProvider::Gemini, "gemini-2.0-flash".into())
+            .unwrap();
 
     assert_eq!(result.decision, VerdictDecision::Approved);
     assert_eq!(result.risk_level, RiskLevel::Low);
@@ -201,11 +216,8 @@ fn test_parse_verdict_json_approved() {
 #[test]
 fn test_parse_verdict_json_denied() {
     let json = r#"{"decision": "denied", "reason": "Policy violation", "risk_level": "high"}"#;
-    let result = deko::services::llm::parse_verdict_json(
-        json,
-        deko::config::LLMProvider::OpenAI,
-        "gpt-4o".into(),
-    ).unwrap();
+    let result =
+        deko::services::llm::parse_verdict_json(json, deko::config::LLMProvider::OpenAI, "gpt-4o".into()).unwrap();
 
     assert_eq!(result.decision, VerdictDecision::Denied);
     assert_eq!(result.risk_level, RiskLevel::High);
@@ -214,11 +226,9 @@ fn test_parse_verdict_json_denied() {
 #[test]
 fn test_parse_verdict_json_escalate() {
     let json = r#"{"decision": "escalate", "reason": "Unclear intent", "risk_level": "medium"}"#;
-    let result = deko::services::llm::parse_verdict_json(
-        json,
-        deko::config::LLMProvider::Gemini,
-        "gemini-2.0-flash".into(),
-    ).unwrap();
+    let result =
+        deko::services::llm::parse_verdict_json(json, deko::config::LLMProvider::Gemini, "gemini-2.0-flash".into())
+            .unwrap();
 
     assert_eq!(result.decision, VerdictDecision::Escalate);
 }
@@ -226,11 +236,8 @@ fn test_parse_verdict_json_escalate() {
 #[test]
 fn test_parse_verdict_json_invalid() {
     let json = "not valid json";
-    let result = deko::services::llm::parse_verdict_json(
-        json,
-        deko::config::LLMProvider::Gemini,
-        "gemini-2.0-flash".into(),
-    );
+    let result =
+        deko::services::llm::parse_verdict_json(json, deko::config::LLMProvider::Gemini, "gemini-2.0-flash".into());
     assert!(result.is_err());
 }
 
@@ -264,6 +271,7 @@ async fn test_webhook_no_url_returns_ok() {
         provider: deko::config::LLMProvider::Gemini,
         model: "test".into(),
         confidence: 0.5,
+        reasoning_chain: None,
     };
     let result = webhook.send_verdict("test-action", &verdict, None).await;
     assert!(result.is_ok());
@@ -349,8 +357,8 @@ fn test_tracing_initializes() {
 // F164: Doc generation test
 #[test]
 fn test_openapi_doc_generates() {
-    use utoipa::OpenApi;
     use deko::routes::ApiDoc;
+    use utoipa::OpenApi;
 
     let doc = ApiDoc::openapi();
     assert!(!doc.info.title.is_empty());
@@ -397,13 +405,14 @@ fn test_env_profile_prod() {
 
 #[test]
 fn test_config_port_default() {
+    set_required_env();
     let config = Config::from_env().unwrap();
     assert!(config.port > 0);
-    assert!(config.port <= 65535);
 }
 
 #[test]
 fn test_config_addr() {
+    set_required_env();
     let config = Config::from_env().unwrap();
     let addr = config.addr();
     assert_eq!(addr.ip().to_string(), "0.0.0.0");
@@ -411,14 +420,18 @@ fn test_config_addr() {
 
 #[test]
 fn test_config_screenshot_limit() {
+    set_required_env();
     let config = Config::from_env().unwrap();
     assert_eq!(config.max_screenshot_size_mb, 10);
 }
 
 #[test]
 fn test_config_rate_limit() {
+    set_required_env();
+    std::env::remove_var("DEKO_RATE_LIMIT_PER_MINUTE");
     let config = Config::from_env().unwrap();
-    assert_eq!(config.rate_limit_per_minute, 60);
+    // dev profile default
+    assert_eq!(config.rate_limit_per_minute, 120);
 }
 
 // F177-F180: Test infrastructure
@@ -519,11 +532,15 @@ fn test_clippy_toml_is_valid() {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("clippy.toml");
     assert!(path.exists(), "clippy.toml must exist");
     let content = std::fs::read_to_string(&path).unwrap();
-    assert!(content.contains("allow-unwrap-in-tests"), "clippy.toml should contain test-specific config");
+    assert!(
+        content.contains("allow-unwrap-in-tests"),
+        "clippy.toml should contain test-specific config"
+    );
 }
 
 #[test]
 fn test_config_database_url_sqlite_default() {
+    set_required_env();
     std::env::set_var("DEKO_DATABASE_URL", "sqlite::memory:");
     let config = Config::from_env().unwrap();
     assert!(config.database_url.starts_with("sqlite:"));

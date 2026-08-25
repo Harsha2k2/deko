@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -68,17 +68,26 @@ impl MetricsCollector {
     }
 
     #[allow(dead_code)]
-    pub fn inc_error_database(&self) { self.errors_database.fetch_add(1, Ordering::Relaxed); }
+    pub fn inc_error_database(&self) {
+        self.errors_database.fetch_add(1, Ordering::Relaxed);
+    }
     #[allow(dead_code)]
-    pub fn inc_error_llm(&self) { self.errors_llm.fetch_add(1, Ordering::Relaxed); }
+    pub fn inc_error_llm(&self) {
+        self.errors_llm.fetch_add(1, Ordering::Relaxed);
+    }
     #[allow(dead_code)]
-    pub fn inc_error_validation(&self) { self.errors_validation.fetch_add(1, Ordering::Relaxed); }
+    pub fn inc_error_validation(&self) {
+        self.errors_validation.fetch_add(1, Ordering::Relaxed);
+    }
     #[allow(dead_code)]
-    pub fn inc_error_auth(&self) { self.errors_auth.fetch_add(1, Ordering::Relaxed); }
+    pub fn inc_error_auth(&self) {
+        self.errors_auth.fetch_add(1, Ordering::Relaxed);
+    }
 
     pub fn set_pool_config(&self, max_connections: u32, acquire_timeout_secs: u64) {
         self.pool_max_connections.store(max_connections, Ordering::Relaxed);
-        self.pool_acquire_timeout_secs.store(acquire_timeout_secs, Ordering::Relaxed);
+        self.pool_acquire_timeout_secs
+            .store(acquire_timeout_secs, Ordering::Relaxed);
     }
 
     pub fn inc_action(&self) {
@@ -239,9 +248,13 @@ pub async fn rate_limit_middleware(
         .unwrap_or("unknown");
 
     if !limiter.is_allowed(client_ip) {
-        return (StatusCode::TOO_MANY_REQUESTS, axum::Json(serde_json::json!({
-            "error": "Rate limit exceeded"
-        }))).into_response();
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            axum::Json(serde_json::json!({
+                "error": "Rate limit exceeded"
+            })),
+        )
+            .into_response();
     }
 
     next.run(request).await

@@ -10,16 +10,16 @@ mod policies;
 mod token;
 mod ws;
 
+use crate::db::{DbPool, DbPoolSet};
+use axum::http::StatusCode;
+use axum::response::IntoResponse;
 use axum::Router;
 use std::sync::Arc;
-use crate::db::{DbPool, DbPoolSet};
-use tower_http::trace::TraceLayer;
 use tower_http::services::ServeDir;
+use tower_http::trace::TraceLayer;
 use tracing::info;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
-use axum::http::StatusCode;
-use axum::response::IntoResponse;
 
 use crate::config::Config;
 use crate::services::metrics::{MetricsCollector, RateLimiter};
@@ -74,31 +74,35 @@ use crate::services::ws_broadcaster::WsBroadcaster;
 )]
 pub struct ApiDoc;
 
-pub fn create_router(config: &Config, pool: DbPool, pool_set: Arc<DbPoolSet>, ws_broadcaster: Arc<WsBroadcaster>) -> anyhow::Result<Router> {
+pub fn create_router(
+    config: &Config,
+    pool: DbPool,
+    pool_set: Arc<DbPoolSet>,
+    ws_broadcaster: Arc<WsBroadcaster>,
+) -> anyhow::Result<Router> {
     info!("Setting up router");
 
     let cors = tower_http::cors::CorsLayer::very_permissive();
 
-    let body_limit = tower_http::limit::RequestBodyLimitLayer::new(
-        config.max_request_body_kb * 1024,
-    );
+    let body_limit = tower_http::limit::RequestBodyLimitLayer::new(config.max_request_body_kb * 1024);
 
     let metrics = MetricsCollector::new();
     let rate_limiter = RateLimiter::new(config.rate_limit_per_minute, 60);
 
     let api_key_secret = config.api_key_secret.clone();
 
-    let auth_state = crate::middleware::auth::AgentState {
-        pool: pool.clone(),
-        api_key_secret: api_key_secret.clone(),
+    let auth_state = crate::middleware::auth::AuthState {
+        agent: crate::middleware::auth::AgentState {
+            pool: pool.clone(),
+            api_key_secret: api_key_secret.clone(),
+        },
+        jwt: crate::middleware::jwt::JwtState {
+            jwt_secret: config.jwt_secret.clone(),
+            pool: pool.clone(),
+        },
     };
 
-    let jwt_state = crate::middleware::jwt::JwtState {
-        jwt_secret: config.jwt_secret.clone(),
-        pool: pool.clone(),
-    };
-
-    // Agent API routes — protected by both API key and JWT
+    // Agent API routes — protected by api key or jwt bearer (unified middleware)
     let protected_routes = Router::new()
         .route("/action", axum::routing::post(actions::create_action))
         .route("/action/{id}", axum::routing::get(actions::get_action))
@@ -106,41 +110,56 @@ pub fn create_router(config: &Config, pool: DbPool, pool_set: Arc<DbPoolSet>, ws
         .route("/action/{id}/forward", axum::routing::post(actions::forward_action))
         .route("/actions", axum::routing::get(actions::list_actions))
         .route("/actions/batch", axum::routing::post(actions::batch_create_actions))
-        .route("/action/{id}/attachments", axum::routing::post(attachments::upload_attachment).get(attachments::list_attachments))
-        .route("/action/{id}/attachments/{attachment_id}", axum::routing::get(attachments::download_attachment))
+        .route(
+            "/action/{id}/attachments",
+            axum::routing::post(attachments::upload_attachment).get(attachments::list_attachments),
+        )
+        .route(
+            "/action/{id}/attachments/{attachment_id}",
+            axum::routing::get(attachments::download_attachment),
+        )
         .route("/action/{id}/ws", axum::routing::get(ws::action_ws_handler))
         .route_layer(axum::middleware::from_fn_with_state(
             auth_state.clone(),
-            crate::middleware::auth::auth_middleware,
+            crate::middleware::auth::agent_auth_middleware,
         ))
-        .route_layer(axum::middleware::from_fn_with_state(
-            jwt_state.clone(),
-            crate::middleware::jwt::jwt_middleware,
-        ))
-        .layer(axum::middleware::from_fn(
-            crate::services::rate_limit_middleware,
-        ))
+        .layer(axum::middleware::from_fn(crate::services::rate_limit_middleware))
         .layer(axum::Extension(rate_limiter.clone()))
         .layer(axum::Extension(pool_set));
 
     // Login/logout routes — no auth middleware (login GET falls through to SPA)
     let auth_routes = Router::new()
         .route("/admin/login", axum::routing::post(admin::admin_login))
-        .route("/admin/logout", axum::routing::get(admin::admin_logout).post(admin::admin_logout));
+        .route(
+            "/admin/logout",
+            axum::routing::get(admin::admin_logout).post(admin::admin_logout),
+        );
 
     // Admin API routes (POST endpoints that need admin password)
     let admin_api_routes = Router::new()
         .route("/admin/actions/export", axum::routing::get(admin::export_actions_csv))
-        .route("/admin/actions/{id}/override", axum::routing::post(admin::override_action))
-        .route("/admin/actions/bulk-override", axum::routing::post(admin::bulk_override_actions))
+        .route(
+            "/admin/actions/{id}/override",
+            axum::routing::post(admin::override_action),
+        )
+        .route(
+            "/admin/actions/bulk-override",
+            axum::routing::post(admin::bulk_override_actions),
+        )
         .route("/admin/agents/register", axum::routing::post(auth::register_agent))
         .route("/admin/agents/revoke", axum::routing::post(auth::revoke_agent))
         .route("/admin/agents/rotate-key", axum::routing::post(auth::rotate_agent_key))
-        .route("/admin/agents/create-api-key", axum::routing::post(auth::create_api_key))
+        .route(
+            "/admin/agents/create-api-key",
+            axum::routing::post(auth::create_api_key),
+        )
         .route("/admin/agents/list-api-keys", axum::routing::post(auth::list_api_keys))
         .route("/admin/policies", axum::routing::post(policies::create_policy))
         .route("/admin/policies/test", axum::routing::post(policies::test_policy))
-        .route("/admin/policies/simulate", axum::routing::post(policies::simulate_policies))
+        .route(
+            "/admin/policies/simulate",
+            axum::routing::post(policies::simulate_policies),
+        )
         .route("/admin/policies/{id}", axum::routing::put(policies::update_policy))
         .route("/admin/policies/{id}", axum::routing::delete(policies::delete_policy))
         .route("/admin/audit/export", axum::routing::get(admin::export_audit_log))
@@ -150,13 +169,22 @@ pub fn create_router(config: &Config, pool: DbPool, pool_set: Arc<DbPoolSet>, ws
     // JSON API routes for the SPA (require admin auth)
     let json_api_routes = Router::new()
         .route("/api/admin/dashboard", axum::routing::get(api_admin::dashboard))
-        .route("/api/admin/actions/timeline", axum::routing::get(api_admin::action_timeline))
+        .route(
+            "/api/admin/actions/timeline",
+            axum::routing::get(api_admin::action_timeline),
+        )
         .route("/api/admin/actions", axum::routing::get(api_admin::list_actions))
         .route("/api/admin/actions/{id}", axum::routing::get(api_admin::get_action))
-        .route("/api/admin/actions/{id}/override", axum::routing::post(api_admin::override_action))
+        .route(
+            "/api/admin/actions/{id}/override",
+            axum::routing::post(api_admin::override_action),
+        )
         .route("/api/admin/agents", axum::routing::get(api_admin::list_agents))
         .route("/api/admin/verdicts", axum::routing::get(api_admin::list_verdicts))
-        .route("/api/admin/verdicts/{id}/explain", axum::routing::get(api_admin::explain_verdict))
+        .route(
+            "/api/admin/verdicts/{id}/explain",
+            axum::routing::get(api_admin::explain_verdict),
+        )
         .route("/api/admin/policies", axum::routing::get(api_admin::list_policies))
         .route("/api/admin/audit", axum::routing::get(api_admin::list_audit_log))
         .route("/api/admin/ws", axum::routing::get(admin_ws::admin_ws_handler))
@@ -173,9 +201,7 @@ pub fn create_router(config: &Config, pool: DbPool, pool_set: Arc<DbPoolSet>, ws
 
     // SPA — serve static files, fallback to index.html for client-side routing
     let spa = ServeDir::new("admin/dist")
-        .not_found_service(
-            tower_http::services::fs::ServeFile::new("admin/dist/index.html")
-        );
+        .not_found_service(tower_http::services::fs::ServeFile::new("admin/dist/index.html"));
 
     let app = Router::new()
         .route("/health", axum::routing::get(health::health))
@@ -232,7 +258,10 @@ pub async fn metrics_prometheus_endpoint(
         output.push_str(&format!("deko_errors_auth {}\n", errors["auth"]));
     }
     let mut headers = axum::http::HeaderMap::new();
-    headers.insert(axum::http::header::CONTENT_TYPE, axum::http::HeaderValue::from_static("text/plain; version=0.0.4"));
+    headers.insert(
+        axum::http::header::CONTENT_TYPE,
+        axum::http::HeaderValue::from_static("text/plain; version=0.0.4"),
+    );
     (StatusCode::OK, headers, output)
 }
 
@@ -241,7 +270,8 @@ async fn admin_auth_middleware(
     next: axum::middleware::Next,
 ) -> axum::response::Response {
     let admin_password = std::env::var("DEKO_ADMIN_PASSWORD").unwrap_or_default();
-    let oauth_enabled = std::env::var("DEKO_OAUTH_ENABLED").ok()
+    let oauth_enabled = std::env::var("DEKO_OAUTH_ENABLED")
+        .ok()
         .and_then(|v| v.parse::<bool>().ok())
         .unwrap_or(false);
 
@@ -267,7 +297,11 @@ async fn admin_auth_middleware(
     if let Some(ip) = request.headers().get("X-Forwarded-For").and_then(|v| v.to_str().ok()) {
         let allowed = std::env::var("DEKO_ADMIN_IP_ALLOWLIST").unwrap_or_default();
         if !allowed.is_empty() && !allowed.split(',').any(|a| ip.trim().starts_with(a.trim())) {
-            return (StatusCode::FORBIDDEN, axum::Json(serde_json::json!({"error": "Admin access restricted by IP"}))).into_response();
+            return (
+                StatusCode::FORBIDDEN,
+                axum::Json(serde_json::json!({"error": "Admin access restricted by IP"})),
+            )
+                .into_response();
         }
     }
 
@@ -291,7 +325,11 @@ async fn admin_auth_middleware(
     };
 
     if !is_admin {
-        return (StatusCode::FORBIDDEN, axum::Json(serde_json::json!({"error": "Admin access required"}))).into_response();
+        return (
+            StatusCode::FORBIDDEN,
+            axum::Json(serde_json::json!({"error": "Admin access required"})),
+        )
+            .into_response();
     }
 
     let mut request = request;

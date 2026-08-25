@@ -1,4 +1,4 @@
-use axum::extract::{State};
+use axum::extract::State;
 use axum::http::StatusCode;
 use axum::Json;
 use serde::{Deserialize, Serialize};
@@ -38,30 +38,25 @@ pub async fn register_agent(
     let id = uuid::Uuid::new_v4().to_string();
     let api_key = uuid::Uuid::new_v4().to_string();
 
-    let secret = std::env::var("DEKO_API_KEY_SECRET")
-        .map_err(|_| AppError::Internal)?;
+    let secret = std::env::var("DEKO_API_KEY_SECRET").map_err(|_| AppError::Internal)?;
     let api_key_hash = hash_api_key(&api_key, &secret);
 
-    sqlx::query(
-        "INSERT INTO agents (id, name, api_key_hash, active) VALUES (?, ?, ?, 1)",
-    )
-    .bind(&id)
-    .bind(&req.name)
-    .bind(&api_key_hash)
-    .execute(&pool)
-    .await
-    .map_err(AppError::Database)?;
+    sqlx::query("INSERT INTO agents (id, name, api_key_hash, active) VALUES (?, ?, ?, 1)")
+        .bind(&id)
+        .bind(&req.name)
+        .bind(&api_key_hash)
+        .execute(&pool)
+        .await
+        .map_err(AppError::Database)?;
 
-    sqlx::query(
-        "INSERT INTO audit_log (id, action_id, event_type, details) VALUES (?, ?, ?, ?)",
-    )
-    .bind(uuid::Uuid::new_v4().to_string())
-    .bind::<Option<String>>(None)
-    .bind("agent_registered")
-    .bind(serde_json::json!({ "agent_id": id, "agent_name": req.name }))
-    .execute(&pool)
-    .await
-    .map_err(AppError::Database)?;
+    sqlx::query("INSERT INTO audit_log (id, action_id, event_type, details) VALUES (?, ?, ?, ?)")
+        .bind(uuid::Uuid::new_v4().to_string())
+        .bind::<Option<String>>(None)
+        .bind("agent_registered")
+        .bind(serde_json::json!({ "agent_id": id, "agent_name": req.name }))
+        .execute(&pool)
+        .await
+        .map_err(AppError::Database)?;
 
     let now = chrono::Utc::now();
 
@@ -100,27 +95,27 @@ pub async fn revoke_agent(
         return Err(AppError::Forbidden("Admin access required".into()));
     }
 
-    let result = sqlx::query("UPDATE agents SET active = 0, deactivated_reason = ?, deactivated_at = CURRENT_TIMESTAMP WHERE id = ?")
-        .bind(&req.reason)
-        .bind(&req.agent_id)
-        .execute(&pool)
-        .await
-        .map_err(AppError::Database)?;
+    let result = sqlx::query(
+        "UPDATE agents SET active = 0, deactivated_reason = ?, deactivated_at = CURRENT_TIMESTAMP WHERE id = ?",
+    )
+    .bind(&req.reason)
+    .bind(&req.agent_id)
+    .execute(&pool)
+    .await
+    .map_err(AppError::Database)?;
 
     if result.rows_affected() == 0 {
         return Err(AppError::NotFound("Agent not found".into()));
     }
 
-    sqlx::query(
-        "INSERT INTO audit_log (id, action_id, event_type, details) VALUES (?, ?, ?, ?)",
-    )
-    .bind(uuid::Uuid::new_v4().to_string())
-    .bind(&req.agent_id)
-    .bind("agent_revoked")
-    .bind(serde_json::json!({"reason": req.reason}))
-    .execute(&pool)
-    .await
-    .ok();
+    sqlx::query("INSERT INTO audit_log (id, action_id, event_type, details) VALUES (?, ?, ?, ?)")
+        .bind(uuid::Uuid::new_v4().to_string())
+        .bind(&req.agent_id)
+        .bind("agent_revoked")
+        .bind(serde_json::json!({"reason": req.reason}))
+        .execute(&pool)
+        .await
+        .ok();
 
     Ok(Json(serde_json::json!({ "revoked": true, "agent_id": req.agent_id })))
 }
@@ -206,31 +201,29 @@ pub async fn rotate_agent_key(
 
     let new_api_key = uuid::Uuid::new_v4().to_string();
 
-    let secret = std::env::var("DEKO_API_KEY_SECRET")
-        .map_err(|_| AppError::Internal)?;
+    let secret = std::env::var("DEKO_API_KEY_SECRET").map_err(|_| AppError::Internal)?;
     let new_hash = hash_api_key(&new_api_key, &secret);
 
-    let result = sqlx::query("UPDATE agents SET api_key_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND active = 1")
-        .bind(&new_hash)
-        .bind(&req.agent_id)
-        .execute(&pool)
-        .await
-        .map_err(AppError::Database)?;
+    let result =
+        sqlx::query("UPDATE agents SET api_key_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND active = 1")
+            .bind(&new_hash)
+            .bind(&req.agent_id)
+            .execute(&pool)
+            .await
+            .map_err(AppError::Database)?;
 
     if result.rows_affected() == 0 {
         return Err(AppError::NotFound("Agent not found or inactive".into()));
     }
 
-    sqlx::query(
-        "INSERT INTO audit_log (id, action_id, event_type, details) VALUES (?, ?, ?, ?)",
-    )
-    .bind(uuid::Uuid::new_v4().to_string())
-    .bind::<Option<String>>(None)
-    .bind("api_key_rotated")
-    .bind(serde_json::json!({ "agent_id": req.agent_id }))
-    .execute(&pool)
-    .await
-    .map_err(AppError::Database)?;
+    sqlx::query("INSERT INTO audit_log (id, action_id, event_type, details) VALUES (?, ?, ?, ?)")
+        .bind(uuid::Uuid::new_v4().to_string())
+        .bind::<Option<String>>(None)
+        .bind("api_key_rotated")
+        .bind(serde_json::json!({ "agent_id": req.agent_id }))
+        .execute(&pool)
+        .await
+        .map_err(AppError::Database)?;
 
     let now = chrono::Utc::now();
 
@@ -265,13 +258,11 @@ pub async fn create_api_key(
         return Err(AppError::Forbidden("Admin access required".into()));
     }
 
-    let agent_exists: (bool,) = sqlx::query_as(
-        "SELECT COUNT(*) > 0 FROM agents WHERE id = ? AND active = 1",
-    )
-    .bind(&req.agent_id)
-    .fetch_one(&pool)
-    .await
-    .map_err(AppError::Database)?;
+    let agent_exists: (bool,) = sqlx::query_as("SELECT COUNT(*) > 0 FROM agents WHERE id = ? AND active = 1")
+        .bind(&req.agent_id)
+        .fetch_one(&pool)
+        .await
+        .map_err(AppError::Database)?;
 
     if !agent_exists.0 {
         return Err(AppError::NotFound("Active agent not found".into()));
@@ -280,20 +271,22 @@ pub async fn create_api_key(
     let api_key = uuid::Uuid::new_v4().to_string();
     let raw_key = format!("{}-{}", req.agent_id, api_key);
     let label = req.label.unwrap_or_else(|| "additional-key".to_string());
-    let key_hash = crate::middleware::auth::hash_api_key(&raw_key, &std::env::var("DEKO_API_KEY_SECRET").unwrap_or_default());
+    let key_hash =
+        crate::middleware::auth::hash_api_key(&raw_key, &std::env::var("DEKO_API_KEY_SECRET").unwrap_or_default());
 
-    sqlx::query(
-        "INSERT INTO api_keys (id, agent_id, key_hash, label) VALUES (?, ?, ?, ?)",
-    )
-    .bind(uuid::Uuid::new_v4().to_string())
-    .bind(&req.agent_id)
-    .bind(&key_hash)
-    .bind(&label)
-    .execute(&pool)
-    .await
-    .map_err(AppError::Database)?;
+    sqlx::query("INSERT INTO api_keys (id, agent_id, key_hash, label) VALUES (?, ?, ?, ?)")
+        .bind(uuid::Uuid::new_v4().to_string())
+        .bind(&req.agent_id)
+        .bind(&key_hash)
+        .bind(&label)
+        .execute(&pool)
+        .await
+        .map_err(AppError::Database)?;
 
-    Ok(Json(CreateApiKeyResponse { api_key: raw_key, label }))
+    Ok(Json(CreateApiKeyResponse {
+        api_key: raw_key,
+        label,
+    }))
 }
 
 #[derive(Debug, Deserialize)]
@@ -326,5 +319,14 @@ pub async fn list_api_keys(
     .await
     .map_err(AppError::Database)?;
 
-    Ok(Json(keys.into_iter().map(|(id, label, active, created_at)| ApiKeySummary { id, label, active, created_at }).collect()))
+    Ok(Json(
+        keys.into_iter()
+            .map(|(id, label, active, created_at)| ApiKeySummary {
+                id,
+                label,
+                active,
+                created_at,
+            })
+            .collect(),
+    ))
 }

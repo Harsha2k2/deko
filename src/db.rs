@@ -1,9 +1,9 @@
-use std::ops::Deref;
-use std::sync::Arc;
-#[cfg(not(feature = "postgres"))]
-use sqlx::{sqlite::SqlitePoolOptions, SqlitePool};
 #[cfg(feature = "postgres")]
 use sqlx::{postgres::PgPoolOptions, PgPool};
+#[cfg(not(feature = "postgres"))]
+use sqlx::{sqlite::SqlitePoolOptions, SqlitePool};
+use std::ops::Deref;
+use std::sync::Arc;
 use tracing::{error, info};
 
 use crate::config::Config;
@@ -119,7 +119,8 @@ pub async fn run_migrations(pool: &DbPool) -> anyhow::Result<()> {
                 "Database migration failed: {}. To skip: set DEKO_SKIP_MIGRATIONS=1. \
                  To attempt rollback: create down migrations and set DEKO_MIGRATE_REVERT_ON_FAILURE=1. \
                  Error: {}",
-                e, e
+                e,
+                e
             );
         }
     }
@@ -144,10 +145,7 @@ async fn backup_database(backup_dir: &str) {
         return;
     }
 
-    let backup_name = format!(
-        "deko_backup_{}.db",
-        chrono::Utc::now().format("%Y%m%d_%H%M%S")
-    );
+    let backup_name = format!("deko_backup_{}.db", chrono::Utc::now().format("%Y%m%d_%H%M%S"));
     let backup_path = std::path::Path::new(backup_dir).join(&backup_name);
 
     if let Err(e) = std::fs::create_dir_all(backup_dir) {

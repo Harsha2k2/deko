@@ -105,12 +105,14 @@ pub trait LLMProviderTrait: Send + Sync {
     /// Simple health check — provider should return Ok if it can make basic API calls.
     async fn health_check(&self) -> Result<()> {
         // Default: try analyze_action with a trivial payload
-        let result = self.analyze_action(
-            "health_check",
-            Some(r#"{"action":"ping"}"#),
-            None,
-            "Minimal health check",
-        ).await?;
+        let result = self
+            .analyze_action(
+                "health_check",
+                Some(r#"{"action":"ping"}"#),
+                None,
+                "Minimal health check",
+            )
+            .await?;
         // Only fail if the response is completely unparseable
         let _ = result;
         Ok(())
@@ -126,10 +128,7 @@ pub trait LLMProviderTrait: Send + Sync {
 }
 
 pub fn parse_verdict_json(content: &str, provider: LLMProvider, model: String) -> Result<VerdictResult> {
-    let cleaned = content
-        .trim_start_matches("```json")
-        .trim_end_matches("```")
-        .trim();
+    let cleaned = content.trim_start_matches("```json").trim_end_matches("```").trim();
 
     #[derive(Deserialize)]
     struct VerdictOutput {
@@ -142,11 +141,12 @@ pub fn parse_verdict_json(content: &str, provider: LLMProvider, model: String) -
         reasoning_chain: Option<serde_json::Value>,
     }
 
-    fn default_confidence() -> f64 { 0.8 }
+    fn default_confidence() -> f64 {
+        0.8
+    }
 
-    let verdict: VerdictOutput = serde_json::from_str(cleaned).map_err(|e| {
-        AppError::OpenAI(format!("Failed to parse verdict JSON: {}. Raw: {}", e, content))
-    })?;
+    let verdict: VerdictOutput = serde_json::from_str(cleaned)
+        .map_err(|e| AppError::OpenAI(format!("Failed to parse verdict JSON: {}. Raw: {}", e, content)))?;
 
     let decision = match verdict.decision.to_lowercase().as_str() {
         "approved" => VerdictDecision::Approved,
@@ -165,7 +165,8 @@ pub fn parse_verdict_json(content: &str, provider: LLMProvider, model: String) -
 
     let reasoning_chain = verdict.reasoning_chain.map(|v| match v {
         serde_json::Value::String(s) => s,
-        serde_json::Value::Array(arr) => arr.iter()
+        serde_json::Value::Array(arr) => arr
+            .iter()
             .filter_map(|e| e.as_str().map(|s| s.to_string()))
             .collect::<Vec<_>>()
             .join(" → "),

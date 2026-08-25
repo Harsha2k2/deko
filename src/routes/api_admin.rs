@@ -73,23 +73,48 @@ pub struct AuditLogJson {
     pub created_at: String,
 }
 
-type ActionRow = (String, String, String, Option<String>, String, String, String, Option<String>, Option<String>, String);
+type ActionRow = (
+    String,
+    String,
+    String,
+    Option<String>,
+    String,
+    String,
+    String,
+    Option<String>,
+    Option<String>,
+    String,
+);
 
 pub async fn dashboard(State(pool): State<DbPool>) -> Result<Json<serde_json::Value>> {
     let total: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM actions")
-        .fetch_one(&pool).await.map_err(AppError::Database)?;
+        .fetch_one(&pool)
+        .await
+        .map_err(AppError::Database)?;
     let pending: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM actions WHERE status = 'pending'")
-        .fetch_one(&pool).await.map_err(AppError::Database)?;
+        .fetch_one(&pool)
+        .await
+        .map_err(AppError::Database)?;
     let approved: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM actions WHERE status = 'approved'")
-        .fetch_one(&pool).await.map_err(AppError::Database)?;
+        .fetch_one(&pool)
+        .await
+        .map_err(AppError::Database)?;
     let denied: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM actions WHERE status = 'denied'")
-        .fetch_one(&pool).await.map_err(AppError::Database)?;
+        .fetch_one(&pool)
+        .await
+        .map_err(AppError::Database)?;
     let escalated: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM actions WHERE status = 'escalated'")
-        .fetch_one(&pool).await.map_err(AppError::Database)?;
+        .fetch_one(&pool)
+        .await
+        .map_err(AppError::Database)?;
     let agents: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM agents WHERE active = 1")
-        .fetch_one(&pool).await.map_err(AppError::Database)?;
+        .fetch_one(&pool)
+        .await
+        .map_err(AppError::Database)?;
     let policies: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM policies WHERE active = 1")
-        .fetch_one(&pool).await.map_err(AppError::Database)?;
+        .fetch_one(&pool)
+        .await
+        .map_err(AppError::Database)?;
 
     Ok(Json(json!({
         "total_actions": total.0,
@@ -110,17 +135,22 @@ pub async fn action_timeline(State(pool): State<DbPool>) -> Result<Json<serde_js
          SUM(CASE WHEN status = 'denied' THEN 1 ELSE 0 END) as denied, \
          SUM(CASE WHEN status = 'escalated' THEN 1 ELSE 0 END) as escalated \
          FROM actions WHERE created_at >= date('now', '-30 days') \
-         GROUP BY date(created_at) ORDER BY day"
+         GROUP BY date(created_at) ORDER BY day",
     )
-    .fetch_all(&pool).await.map_err(AppError::Database)?;
+    .fetch_all(&pool)
+    .await
+    .map_err(AppError::Database)?;
 
-    Ok(Json(json!(rows.into_iter().map(|r| json!({
-        "date": r.0,
-        "total": r.1,
-        "approved": r.2,
-        "denied": r.3,
-        "escalated": r.4,
-    })).collect::<Vec<_>>())))
+    Ok(Json(json!(rows
+        .into_iter()
+        .map(|r| json!({
+            "date": r.0,
+            "total": r.1,
+            "approved": r.2,
+            "denied": r.3,
+            "escalated": r.4,
+        }))
+        .collect::<Vec<_>>())))
 }
 
 pub async fn list_actions(
@@ -137,7 +167,9 @@ pub async fn list_actions(
     sql.push_str(" ORDER BY a.created_at DESC LIMIT 100");
 
     let rows: Vec<ActionRow> = sqlx::query_as(&sql)
-        .fetch_all(&pool).await.map_err(AppError::Database)?;
+        .fetch_all(&pool)
+        .await
+        .map_err(AppError::Database)?;
 
     let mut result = Vec::new();
     for r in rows {
@@ -172,10 +204,7 @@ pub async fn list_actions(
     Ok(Json(result))
 }
 
-pub async fn get_action(
-    State(pool): State<DbPool>,
-    Path(id): Path<String>,
-) -> Result<Json<ActionJson>> {
+pub async fn get_action(State(pool): State<DbPool>, Path(id): Path<String>) -> Result<Json<ActionJson>> {
     let row: Option<ActionRow> = sqlx::query_as(
         "SELECT a.id, ag.name, a.intent, a.payload, a.status, a.created_at, a.updated_at, a.target_url, a.target_method, a.agent_id FROM actions a JOIN agents ag ON a.agent_id = ag.id WHERE a.id = ?"
     )
@@ -185,10 +214,12 @@ pub async fn get_action(
     let r = row.ok_or_else(|| AppError::NotFound("Action not found".into()))?;
 
     let verdict: Option<(String, String, String, String)> = sqlx::query_as(
-        "SELECT id, decision, reason, risk_level FROM verdicts WHERE action_id = ? ORDER BY created_at DESC LIMIT 1"
+        "SELECT id, decision, reason, risk_level FROM verdicts WHERE action_id = ? ORDER BY created_at DESC LIMIT 1",
     )
     .bind(&id)
-    .fetch_optional(&pool).await.unwrap_or(None);
+    .fetch_optional(&pool)
+    .await
+    .unwrap_or(None);
 
     let (v_id, v_dec, v_reason, v_risk) = match verdict {
         Some(v) => (Some(v.0), Some(v.1), Some(v.2), Some(v.3)),
@@ -234,27 +265,29 @@ pub async fn override_action(
         return Err(AppError::BadRequest("reason is required".into()));
     }
 
-    let action = sqlx::query_as::<_, (String, String)>(
-        "SELECT id, status FROM actions WHERE id = ?"
-    )
-    .bind(&id)
-    .fetch_optional(&pool)
-    .await
-    .map_err(AppError::Database)?
-    .ok_or_else(|| AppError::NotFound("Action not found".into()))?;
+    let action = sqlx::query_as::<_, (String, String)>("SELECT id, status FROM actions WHERE id = ?")
+        .bind(&id)
+        .fetch_optional(&pool)
+        .await
+        .map_err(AppError::Database)?
+        .ok_or_else(|| AppError::NotFound("Action not found".into()))?;
 
     let current_status = action.1.as_str();
 
     let new_status = match body.decision.as_str() {
         "approved" => {
             if current_status != "denied" && current_status != "escalated" && current_status != "pending" {
-                return Err(AppError::BadRequest("Can only override denied, escalated, or pending actions".into()));
+                return Err(AppError::BadRequest(
+                    "Can only override denied, escalated, or pending actions".into(),
+                ));
             }
             "approved"
         }
         "denied" => {
             if current_status != "pending" && current_status != "escalated" {
-                return Err(AppError::BadRequest("Can only deny pending or escalated actions".into()));
+                return Err(AppError::BadRequest(
+                    "Can only deny pending or escalated actions".into(),
+                ));
             }
             "denied"
         }
@@ -264,7 +297,11 @@ pub async fn override_action(
             }
             "escalated"
         }
-        _ => return Err(AppError::BadRequest("decision must be 'approved', 'denied', or 'escalated'".into())),
+        _ => {
+            return Err(AppError::BadRequest(
+                "decision must be 'approved', 'denied', or 'escalated'".into(),
+            ))
+        }
     };
 
     sqlx::query("UPDATE actions SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
@@ -274,20 +311,21 @@ pub async fn override_action(
         .await
         .map_err(AppError::Database)?;
 
-    sqlx::query(
-        "INSERT INTO audit_log (id, action_id, event_type, details) VALUES (?, ?, ?, ?)"
-    )
-    .bind(uuid::Uuid::new_v4().to_string())
-    .bind(&id)
-    .bind("admin_override")
-    .bind(json!({
-        "previous_status": current_status,
-        "decision": body.decision,
-        "reason": body.reason,
-    }).to_string())
-    .execute(&pool)
-    .await
-    .map_err(AppError::Database)?;
+    sqlx::query("INSERT INTO audit_log (id, action_id, event_type, details) VALUES (?, ?, ?, ?)")
+        .bind(uuid::Uuid::new_v4().to_string())
+        .bind(&id)
+        .bind("admin_override")
+        .bind(
+            json!({
+                "previous_status": current_status,
+                "decision": body.decision,
+                "reason": body.reason,
+            })
+            .to_string(),
+        )
+        .execute(&pool)
+        .await
+        .map_err(AppError::Database)?;
 
     Ok(Json(OverrideResponse {
         success: true,
@@ -296,19 +334,24 @@ pub async fn override_action(
 }
 
 pub async fn list_agents(State(pool): State<DbPool>) -> Result<Json<Vec<AgentJson>>> {
-    let rows: Vec<(String, String, bool, String)> = sqlx::query_as(
-        "SELECT id, name, active, created_at FROM agents ORDER BY created_at DESC"
-    )
-    .fetch_all(&pool).await.map_err(AppError::Database)?;
+    let rows: Vec<(String, String, bool, String)> =
+        sqlx::query_as("SELECT id, name, active, created_at FROM agents ORDER BY created_at DESC")
+            .fetch_all(&pool)
+            .await
+            .map_err(AppError::Database)?;
 
-    Ok(Json(rows.into_iter().map(|r| AgentJson {
-        id: r.0,
-        name: r.1,
-        active: r.2,
-        created_at: r.3,
-        deactivated_reason: None,
-        deactivated_at: None,
-    }).collect()))
+    Ok(Json(
+        rows.into_iter()
+            .map(|r| AgentJson {
+                id: r.0,
+                name: r.1,
+                active: r.2,
+                created_at: r.3,
+                deactivated_reason: None,
+                deactivated_at: None,
+            })
+            .collect(),
+    ))
 }
 
 pub async fn list_verdicts(State(pool): State<DbPool>) -> Result<Json<Vec<VerdictJson>>> {
@@ -317,34 +360,44 @@ pub async fn list_verdicts(State(pool): State<DbPool>) -> Result<Json<Vec<Verdic
     )
     .fetch_all(&pool).await.map_err(AppError::Database)?;
 
-    Ok(Json(rows.into_iter().map(|r| VerdictJson {
-        id: r.0,
-        action_id: r.1,
-        decision: r.2,
-        reason: r.3,
-        risk_level: r.4,
-        policy_matched: r.5,
-        llm_raw_response: r.6,
-        reasoning_chain: r.7,
-        created_at: r.8,
-    }).collect()))
+    Ok(Json(
+        rows.into_iter()
+            .map(|r| VerdictJson {
+                id: r.0,
+                action_id: r.1,
+                decision: r.2,
+                reason: r.3,
+                risk_level: r.4,
+                policy_matched: r.5,
+                llm_raw_response: r.6,
+                reasoning_chain: r.7,
+                created_at: r.8,
+            })
+            .collect(),
+    ))
 }
 
 pub async fn list_policies(State(pool): State<DbPool>) -> Result<Json<Vec<PolicyJson>>> {
     let rows: Vec<(String, String, String, String, bool, String, String)> = sqlx::query_as(
-        "SELECT id, name, description, rules, active, created_at, updated_at FROM policies ORDER BY created_at DESC"
+        "SELECT id, name, description, rules, active, created_at, updated_at FROM policies ORDER BY created_at DESC",
     )
-    .fetch_all(&pool).await.map_err(AppError::Database)?;
+    .fetch_all(&pool)
+    .await
+    .map_err(AppError::Database)?;
 
-    Ok(Json(rows.into_iter().map(|r| PolicyJson {
-        id: r.0,
-        name: r.1,
-        description: r.2,
-        rules: serde_json::from_str(&r.3).unwrap_or(json!({})),
-        active: r.4,
-        created_at: r.5,
-        updated_at: r.6,
-    }).collect()))
+    Ok(Json(
+        rows.into_iter()
+            .map(|r| PolicyJson {
+                id: r.0,
+                name: r.1,
+                description: r.2,
+                rules: serde_json::from_str(&r.3).unwrap_or(json!({})),
+                active: r.4,
+                created_at: r.5,
+                updated_at: r.6,
+            })
+            .collect(),
+    ))
 }
 
 #[derive(Deserialize)]
@@ -368,13 +421,17 @@ pub async fn list_audit_log(
     .bind(offset)
     .fetch_all(&pool).await.map_err(AppError::Database)?;
 
-    Ok(Json(rows.into_iter().map(|r| AuditLogJson {
-        id: r.0,
-        action_id: r.1,
-        event_type: r.2,
-        details: serde_json::from_str(&r.3).ok(),
-        created_at: r.4,
-    }).collect()))
+    Ok(Json(
+        rows.into_iter()
+            .map(|r| AuditLogJson {
+                id: r.0,
+                action_id: r.1,
+                event_type: r.2,
+                details: serde_json::from_str(&r.3).ok(),
+                created_at: r.4,
+            })
+            .collect(),
+    ))
 }
 
 #[derive(Serialize)]
@@ -392,10 +449,7 @@ pub struct VerdictExplainJson {
     pub created_at: String,
 }
 
-pub async fn explain_verdict(
-    State(pool): State<DbPool>,
-    Path(id): Path<String>,
-) -> Result<Json<VerdictExplainJson>> {
+pub async fn explain_verdict(State(pool): State<DbPool>, Path(id): Path<String>) -> Result<Json<VerdictExplainJson>> {
     let row: Option<(String, String, String, String, String, Option<String>, Option<String>, String)> = sqlx::query_as(
         "SELECT id, action_id, decision, reason, risk_level, policy_matched, reasoning_chain, created_at FROM verdicts WHERE id = ?"
     )

@@ -173,10 +173,7 @@ impl Environment {
                 anthropic_model: "claude-sonnet-4-20250514".to_string(),
                 ollama_base_url: "http://localhost:11434".to_string(),
                 ollama_model: "llama3.2".to_string(),
-                allowed_origins: vec![
-                    "http://localhost:8000".to_string(),
-                    "http://localhost:3000".to_string(),
-                ],
+                allowed_origins: vec!["http://localhost:8000".to_string(), "http://localhost:3000".to_string()],
                 rate_limit_per_minute: 60,
                 max_screenshot_size_mb: 10,
                 max_request_body_kb: 512,
@@ -242,17 +239,18 @@ impl Config {
 
         let profile = env.defaults();
 
-        let admin_password = std::env::var("DEKO_ADMIN_PASSWORD")
-            .map_err(|_| anyhow::anyhow!("DEKO_ADMIN_PASSWORD is required"))?;
+        let admin_password =
+            std::env::var("DEKO_ADMIN_PASSWORD").map_err(|_| anyhow::anyhow!("DEKO_ADMIN_PASSWORD is required"))?;
 
-        let database_url = std::env::var("DEKO_DATABASE_URL")
-            .map_err(|_| anyhow::anyhow!("DEKO_DATABASE_URL is required"))?;
+        let database_url =
+            std::env::var("DEKO_DATABASE_URL").map_err(|_| anyhow::anyhow!("DEKO_DATABASE_URL is required"))?;
 
         let database_read_url = std::env::var("DEKO_DATABASE_READ_URL").ok();
 
         let default_provider = match std::env::var("DEKO_DEFAULT_PROVIDER")
             .or_else(|_| std::env::var("LLM_DEFAULT_PROVIDER"))
-            .as_deref() {
+            .as_deref()
+        {
             Ok("openai") => LLMProvider::OpenAI,
             Ok("gemini") => LLMProvider::Gemini,
             Ok("anthropic") => LLMProvider::Anthropic,
@@ -263,21 +261,18 @@ impl Config {
             _ => LLMProvider::Gemini,
         };
 
-        let default_model = std::env::var("LLM_DEFAULT_MODEL")
-            .unwrap_or(profile.default_model);
+        let default_model = std::env::var("LLM_DEFAULT_MODEL").unwrap_or(profile.default_model);
 
         let openai_api_key = std::env::var("OPENAI_API_KEY").ok();
 
-        let openai_model = std::env::var("OPENAI_MODEL")
-            .unwrap_or(profile.openai_model);
+        let openai_model = std::env::var("OPENAI_MODEL").unwrap_or(profile.openai_model);
 
         let gemini_api_key = std::env::var("GEMINI_API_KEY").ok();
 
-        let gemini_model = std::env::var("GEMINI_MODEL")
-            .unwrap_or(profile.gemini_model);
+        let gemini_model = std::env::var("GEMINI_MODEL").unwrap_or(profile.gemini_model);
 
-        let api_key_secret = std::env::var("DEKO_API_KEY_SECRET")
-            .map_err(|_| anyhow::anyhow!("DEKO_API_KEY_SECRET is required"))?;
+        let api_key_secret =
+            std::env::var("DEKO_API_KEY_SECRET").map_err(|_| anyhow::anyhow!("DEKO_API_KEY_SECRET is required"))?;
 
         let allowed_origins = std::env::var("DEKO_ALLOWED_ORIGINS")
             .ok()
@@ -311,19 +306,16 @@ impl Config {
 
         let anthropic_api_key = std::env::var("ANTHROPIC_API_KEY").ok();
 
-        let anthropic_model = std::env::var("ANTHROPIC_MODEL")
-            .unwrap_or(profile.anthropic_model);
+        let anthropic_model = std::env::var("ANTHROPIC_MODEL").unwrap_or(profile.anthropic_model);
 
         let anthropic_timeout_secs = std::env::var("ANTHROPIC_TIMEOUT_SECS")
             .ok()
             .and_then(|s| s.parse::<u64>().ok())
             .unwrap_or(profile.anthropic_timeout_secs);
 
-        let ollama_base_url = std::env::var("OLLAMA_BASE_URL")
-            .unwrap_or(profile.ollama_base_url);
+        let ollama_base_url = std::env::var("OLLAMA_BASE_URL").unwrap_or(profile.ollama_base_url);
 
-        let ollama_model = std::env::var("OLLAMA_MODEL")
-            .unwrap_or(profile.ollama_model);
+        let ollama_model = std::env::var("OLLAMA_MODEL").unwrap_or(profile.ollama_model);
 
         let ollama_timeout_secs = std::env::var("OLLAMA_TIMEOUT_SECS")
             .ok()
@@ -332,30 +324,24 @@ impl Config {
 
         let azure_api_key = std::env::var("AZURE_API_KEY").ok();
 
-        let azure_endpoint = std::env::var("AZURE_ENDPOINT")
-            .unwrap_or(profile.azure_endpoint);
+        let azure_endpoint = std::env::var("AZURE_ENDPOINT").unwrap_or(profile.azure_endpoint);
 
-        let azure_deployment = std::env::var("AZURE_DEPLOYMENT")
-            .unwrap_or(profile.azure_deployment);
+        let azure_deployment = std::env::var("AZURE_DEPLOYMENT").unwrap_or(profile.azure_deployment);
 
-        let azure_api_version = std::env::var("AZURE_API_VERSION")
-            .unwrap_or(profile.azure_api_version);
+        let azure_api_version = std::env::var("AZURE_API_VERSION").unwrap_or(profile.azure_api_version);
 
         let azure_timeout_secs = std::env::var("AZURE_TIMEOUT_SECS")
             .ok()
             .and_then(|s| s.parse::<u64>().ok())
             .unwrap_or(profile.azure_timeout_secs);
 
-        let bedrock_model_id = std::env::var("BEDROCK_MODEL_ID")
-            .unwrap_or(profile.bedrock_model_id);
+        let bedrock_model_id = std::env::var("BEDROCK_MODEL_ID").unwrap_or(profile.bedrock_model_id);
 
-        let bedrock_region = std::env::var("BEDROCK_REGION")
-            .unwrap_or(profile.bedrock_region);
+        let bedrock_region = std::env::var("BEDROCK_REGION").unwrap_or(profile.bedrock_region);
 
         let custom_provider_url = std::env::var("CUSTOM_PROVIDER_URL").ok();
 
-        let custom_provider_model = std::env::var("CUSTOM_PROVIDER_MODEL")
-            .unwrap_or(profile.custom_provider_model);
+        let custom_provider_model = std::env::var("CUSTOM_PROVIDER_MODEL").unwrap_or(profile.custom_provider_model);
 
         let custom_provider_timeout_secs = std::env::var("CUSTOM_PROVIDER_TIMEOUT_SECS")
             .ok()
@@ -374,8 +360,7 @@ impl Config {
 
         let webhook_url = std::env::var("DEKO_WEBHOOK_URL").ok();
 
-        let jwt_secret = std::env::var("DEKO_JWT_SECRET")
-            .unwrap_or_else(|_| uuid::Uuid::new_v4().to_string());
+        let jwt_secret = std::env::var("DEKO_JWT_SECRET").unwrap_or_else(|_| uuid::Uuid::new_v4().to_string());
 
         let jwt_expiry_secs = std::env::var("DEKO_JWT_EXPIRY_SECS")
             .ok()
@@ -459,7 +444,9 @@ impl Config {
         }
 
         if self.env == Environment::Prod && self.allowed_origins.iter().any(|o| o == "*") {
-            bail!("Wildcard CORS origin '*' is not allowed in production. Set DEKO_ALLOWED_ORIGINS to specific origins.");
+            bail!(
+                "Wildcard CORS origin '*' is not allowed in production. Set DEKO_ALLOWED_ORIGINS to specific origins."
+            );
         }
 
         if self.env == Environment::Prod && self.allowed_origins.is_empty() {
@@ -527,10 +514,7 @@ pub fn init_tracing(env: &Environment) {
         .unwrap_or_else(|_| format!("{log_level},tower_http={log_level}").into());
 
     if env == &Environment::Prod {
-        tracing_subscriber::fmt()
-            .json()
-            .with_env_filter(filter)
-            .init();
+        tracing_subscriber::fmt().json().with_env_filter(filter).init();
     } else {
         tracing_subscriber::fmt()
             .with_env_filter(filter)

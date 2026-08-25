@@ -1,11 +1,12 @@
+use crate::db::DbPool;
 use axum::body::Body;
 use axum::extract::{Request, State};
 use axum::http::StatusCode;
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
-use crate::db::DbPool;
 use tracing::warn;
 
+use crate::middleware::jwt::JwtState;
 use crate::models::Agent;
 
 /// State required by the API key authentication middleware.
@@ -15,6 +16,60 @@ pub struct AgentState {
     pub api_key_secret: String,
 }
 
+/// Combined state for the unified middleware.
+#[derive(Clone)]
+pub struct AuthState {
+    pub agent: AgentState,
+    pub jwt: JwtState,
+}
+
+/// Unified agent authentication middleware.
+///
+/// Accepts either credential, tried in order:
+/// 1. `Authorization: Bearer <jwt>` — validated against the configured secret,
+///    agent re-loaded from db so revocation takes effect immediately.
+/// 2. `X-API-Key` — hashed and looked up in `api_keys` (multi-key) with
+///    fallback to the legacy `agents.api_key_hash` column.
+///
+/// Requests carrying neither credential are rejected with 401.
+pub async fn agent_auth_middleware(State(state): State<AuthState>, request: Request<Body>, next: Next) -> Response {
+    let bearer = request
+        .headers()
+        .get("Authorization")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .map(str::to_owned);
+
+    if let Some(token) = bearer {
+        match crate::middleware::jwt::validate_token(&token, &state.jwt.jwt_secret) {
+            Ok(claims) => match load_active_agent(&state.jwt.pool, &claims.sub).await {
+                Ok(Some(agent)) => {
+                    let mut request = request;
+                    request.extensions_mut().insert(agent);
+                    return next.run(request).await;
+                }
+                Ok(None) => return unauthorized("Agent not found or deactivated"),
+                Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error").into_response(),
+            },
+            Err(e) => {
+                warn!("JWT validation failed: {}", e);
+                return unauthorized("Invalid or expired token");
+            }
+        }
+    }
+
+    auth_middleware(State(state.agent), request, next).await
+}
+
+async fn load_active_agent(pool: &DbPool, agent_id: &str) -> std::result::Result<Option<Agent>, sqlx::Error> {
+    sqlx::query_as::<_, Agent>(
+        "SELECT id, name, api_key_hash, active, created_at, deactivated_reason, deactivated_at, api_key_expires_at FROM agents WHERE id = ? AND active = 1",
+    )
+    .bind(agent_id)
+    .fetch_optional(pool)
+    .await
+}
+
 /// Middleware that authenticates agents via API key.
 ///
 /// Extracts the `X-API-Key` header, hashes it with SHA-256, and looks up the
@@ -22,11 +77,7 @@ pub struct AgentState {
 /// request extensions for downstream handlers.
 ///
 /// Returns `401 Unauthorized` for missing, invalid, or revoked keys.
-pub async fn auth_middleware(
-    State(state): State<AgentState>,
-    request: Request<Body>,
-    next: Next,
-) -> Response {
+pub async fn auth_middleware(State(state): State<AgentState>, request: Request<Body>, next: Next) -> Response {
     let api_key = match request.headers().get("X-API-Key") {
         Some(key) => match key.to_str() {
             Ok(k) => k,
@@ -88,19 +139,17 @@ pub async fn auth_middleware(
         }
     };
 
-    sqlx::query(
-        "INSERT INTO audit_log (id, action_id, event_type, details) VALUES (?, ?, ?, ?)",
-    )
-    .bind(uuid::Uuid::new_v4().to_string())
-    .bind(&agent.id)
-    .bind("api_key_used")
-    .bind(serde_json::json!({
-        "agent_name": agent.name,
-        "path": request.uri().path(),
-    }))
-    .execute(&state.pool)
-    .await
-    .ok();
+    sqlx::query("INSERT INTO audit_log (id, action_id, event_type, details) VALUES (?, ?, ?, ?)")
+        .bind(uuid::Uuid::new_v4().to_string())
+        .bind(&agent.id)
+        .bind("api_key_used")
+        .bind(serde_json::json!({
+            "agent_name": agent.name,
+            "path": request.uri().path(),
+        }))
+        .execute(&state.pool)
+        .await
+        .ok();
 
     let mut request = request;
     request.extensions_mut().insert(agent);
@@ -109,7 +158,11 @@ pub async fn auth_middleware(
 }
 
 fn unauthorized(msg: &str) -> Response {
-    (StatusCode::UNAUTHORIZED, axum::Json(serde_json::json!({ "error": msg }))).into_response()
+    (
+        StatusCode::UNAUTHORIZED,
+        axum::Json(serde_json::json!({ "error": msg })),
+    )
+        .into_response()
 }
 
 use sha2::{Digest, Sha256};

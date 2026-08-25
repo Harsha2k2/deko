@@ -1,9 +1,9 @@
 use axum::{extract::State, Extension, Json};
 
+use crate::config::Config;
 use crate::error::{AppError, Result};
 use crate::middleware::auth::hash_api_key;
 use crate::middleware::jwt::create_token;
-use crate::config::Config;
 
 type DbPool = crate::db::DbPool;
 
@@ -37,18 +37,15 @@ pub async fn exchange_token(
         Ok(Some((id, name))) => Some((id, name)),
         _ => {
             // Fallback to legacy agent key
-            sqlx::query_as::<_, (String, String)>(
-                "SELECT id, name FROM agents WHERE api_key_hash = ? AND active = 1",
-            )
-            .bind(&hashed)
-            .fetch_optional(&pool)
-            .await
-            .map_err(AppError::Database)?
+            sqlx::query_as::<_, (String, String)>("SELECT id, name FROM agents WHERE api_key_hash = ? AND active = 1")
+                .bind(&hashed)
+                .fetch_optional(&pool)
+                .await
+                .map_err(AppError::Database)?
         }
     };
 
-    let (agent_id, agent_name) = agent
-        .ok_or_else(|| AppError::Unauthorized("Invalid API key".into()))?;
+    let (agent_id, agent_name) = agent.ok_or_else(|| AppError::Unauthorized("Invalid API key".into()))?;
 
     let token = create_token(&agent_id, &agent_name, &config.jwt_secret, config.jwt_expiry_secs)
         .map_err(|_| AppError::Internal)?;
@@ -61,15 +58,14 @@ pub async fn exchange_token(
 
 async fn try_find_key(pool: &DbPool, hashed: &str) -> Result<Option<(String, String)>> {
     // Check if api_keys table exists first
-    let table_exists: (i64,) = match sqlx::query_as(
-        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='api_keys'"
-    )
-    .fetch_one(pool)
-    .await
-    {
-        Ok(r) => r,
-        Err(_) => return Ok(None),
-    };
+    let table_exists: (i64,) =
+        match sqlx::query_as("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='api_keys'")
+            .fetch_one(pool)
+            .await
+        {
+            Ok(r) => r,
+            Err(_) => return Ok(None),
+        };
 
     if table_exists.0 == 0 {
         return Ok(None);
