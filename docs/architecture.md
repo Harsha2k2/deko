@@ -134,12 +134,16 @@ layer so the port is mechanical when a customer actually needs it.
 
 ## roadmap
 
-| phase | theme | items |
-|-------|-------|-------|
-| p0 | trust foundations | cors from config, sql interpolation removal, egress guard, attachment ownership, webhook hmac |
-| p1 | provable core | audit hash chain + verify + exports, unified policy evaluator, provider fallback chain, honest forwarding states |
-| p2 | humans | users + argon2 + sessions + rbac-lite, escalation queue polish |
-| p3 | ship it | ci repair, docker healthcheck, helm chart, readme/docs truth pass |
+| phase | theme | status |
+|-------|-------|--------|
+| p0 | trust foundations: cors from config, sql interpolation removal, egress guard, attachment ownership, webhook hmac | **done** |
+| p1 | provable core: audit hash chain + verify + backfill, unified policy evaluator, provider fallback chain, honest forwarding states | **done** |
+| p2 | humans: users + argon2 + sessions + rbac-lite, escalation queue polish | sessions shipped; multi-user rbac next |
+| p3 | ship it: ci repair, docker healthcheck, graceful shutdown, readme truth pass | **done** |
+
+next up after p2: postgres data-layer port behind the existing pool
+abstraction, connection-pinned egress to close the dns rebinding window,
+and policy version history with rollback.
 
 ## decision log
 
@@ -148,3 +152,9 @@ layer so the port is mechanical when a customer actually needs it.
 | 2026-08 | drop half-done postgres scaffolding | two divergent dialects, neither tested; sqlite ships today, port is mechanical later |
 | 2026-08 | unified auth middleware (key or bearer) | old stack required both, locking out every documented client |
 | 2026-08 | single evaluator for live+simulate | simulate drift meant "tested" policies behaved differently in prod |
+| 2026-08 | server-side admin sessions | the raw password was stored as its own cookie; forged oauth-format cookies granted admin |
+| 2026-08 | egress guard at submit AND forward | dangerous targets rejected at creation; redirects re-validated per hop |
+| 2026-08 | audit hash chain (sha256, chained) | "immutable" was a comment on a plain table; now edits are detectable by math |
+| 2026-08 | hmac webhooks with timestamp | raw sha256(secret\|\|payload) is length-extension vulnerable and replayable |
+| 2026-08 | provider fallback chain from config | README promised failover that no longer existed after a refactor |
+| 2026-08 | honest forward states (forward_failed) | forwarding reported success even when every attempt failed |

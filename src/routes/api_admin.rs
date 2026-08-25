@@ -350,7 +350,17 @@ pub async fn list_agents(State(pool): State<DbPool>) -> Result<Json<Vec<AgentJso
 }
 
 pub async fn list_verdicts(State(pool): State<DbPool>) -> Result<Json<Vec<VerdictJson>>> {
-    type ActionRow = (String, String, String, String, String, Option<String>, Option<String>, Option<String>, String);
+    type ActionRow = (
+        String,
+        String,
+        String,
+        String,
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        String,
+    );
     let rows: Vec<ActionRow> = sqlx::query_as(
         "SELECT id, action_id, decision, reason, risk_level, policy_matched, llm_raw_response, reasoning_chain, created_at FROM verdicts ORDER BY created_at DESC LIMIT 100"
     )
@@ -445,7 +455,16 @@ pub struct VerdictExplainJson {
 }
 
 pub async fn explain_verdict(State(pool): State<DbPool>, Path(id): Path<String>) -> Result<Json<VerdictExplainJson>> {
-    type DetailRow = (String, String, String, String, String, Option<String>, Option<String>, String);
+    type DetailRow = (
+        String,
+        String,
+        String,
+        String,
+        String,
+        Option<String>,
+        Option<String>,
+        String,
+    );
     let row: Option<DetailRow> = sqlx::query_as(
         "SELECT id, action_id, decision, reason, risk_level, policy_matched, reasoning_chain, created_at FROM verdicts WHERE id = ?"
     )

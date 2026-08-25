@@ -89,7 +89,9 @@ fn extract_session_token(headers: &axum::http::HeaderMap) -> Option<String> {
 pub async fn verify_admin(pool: &crate::db::DbPool, headers: &axum::http::HeaderMap) -> Result<String> {
     // 1. session cookie (preferred; revocable, expiring, hashed at rest)
     if let Some(token) = extract_session_token(headers) {
-        if let Some(identity) = crate::services::session::validate(pool, &token).await? { return Ok(identity) }
+        if let Some(identity) = crate::services::session::validate(pool, &token).await? {
+            return Ok(identity);
+        }
     }
 
     // 2. bootstrap password header (for scripted api use before any login)
