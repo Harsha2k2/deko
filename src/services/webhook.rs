@@ -48,6 +48,7 @@ impl WebhookService {
 
     /// verifies a signature header against a payload (receiver-side logic,
     /// exposed for testing the scheme itself).
+    #[allow(dead_code)]
     pub fn verify(&self, payload_bytes: &[u8], timestamp: i64, header: &str) -> bool {
         let Some(expected) = self.sign(payload_bytes, timestamp) else {
             return false;

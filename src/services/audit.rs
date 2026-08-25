@@ -99,15 +99,15 @@ pub async fn record(
     event_type: &str,
     details: &serde_json::Value,
 ) -> Result<()> {
-    let mut tx = pool.begin().await.map_err(|e| AppError::Database(e.into()))?;
+    let mut tx = pool.begin().await.map_err(AppError::Database)?;
     insert_chained_tx(&mut tx, action_id, event_type, details).await?;
-    tx.commit().await.map_err(|e| AppError::Database(e.into()))
+    tx.commit().await.map_err(AppError::Database)
 }
 
 /// walks the whole chain recomputing each hash; reports the first broken link.
 pub async fn verify_chain(pool: &SqlitePool) -> Result<ChainReport> {
-    let rows: Vec<(String, Option<String>, String, String, String, Option<String>, Option<String>)> =
-        sqlx::query_as(
+    type ChainRow = (String, Option<String>, String, String, String, Option<String>, Option<String>);
+    let rows: Vec<ChainRow> = sqlx::query_as(
             "SELECT id, action_id, event_type, details, created_at, prev_hash, entry_hash FROM audit_log ORDER BY rowid ASC",
         )
         .fetch_all(pool)
@@ -166,7 +166,7 @@ pub async fn backfill_unchained(pool: &SqlitePool) -> Result<u64> {
     }
 
     let mut count: u64 = 0;
-    let mut tx = pool.begin().await.map_err(|e| AppError::Database(e.into()))?;
+    let mut tx = pool.begin().await.map_err(AppError::Database)?;
 
     for (id, action_id, event_type, details, created_at) in unchained {
         let prev = current_head_tx(&mut tx).await?;
@@ -184,7 +184,7 @@ pub async fn backfill_unchained(pool: &SqlitePool) -> Result<u64> {
         count += 1;
     }
 
-    tx.commit().await.map_err(|e| AppError::Database(e.into()))?;
+    tx.commit().await.map_err(AppError::Database)?;
     Ok(count)
 }
 

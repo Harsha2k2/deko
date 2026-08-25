@@ -55,7 +55,7 @@ fn build_provider_chain(config: &Config) -> Vec<Box<dyn LLMProviderTrait>> {
         LLMProvider::Custom,
     ];
 
-    let mut order: Vec<LLMProvider> = vec![config.default_provider.clone()];
+    let mut order: Vec<LLMProvider> = vec![config.default_provider];
     for p in candidates {
         if !order.contains(&p) && provider_is_configured(config, &p) {
             order.push(p);
@@ -164,14 +164,12 @@ impl VerdictService {
                     model: "policy_engine".to_string(),
                     confidence: 1.0,
                     reasoning_chain: Some(
-                        vec![
-                            "Policy evaluation completed".to_string(),
+                        ["Policy evaluation completed".to_string(),
                             format!(
                                 "Matched policy: {}",
                                 policy_result.matched_policy_id.as_deref().unwrap_or("unknown")
                             ),
-                            format!("Violation: {}", reason),
-                        ]
+                            format!("Violation: {}", reason)]
                         .join(" → "),
                     ),
                 },
@@ -217,12 +215,10 @@ impl VerdictService {
                         model: "prompt_injection_detector".to_string(),
                         confidence: 1.0,
                         reasoning_chain: Some(
-                            vec![
-                                "Prompt injection scan initiated".to_string(),
+                            ["Prompt injection scan initiated".to_string(),
                                 format!("Detected {} suspicious pattern(s)", injection_result.patterns.len()),
                                 format!("Critical pattern(s) found: {}", patterns.join(", ")),
-                                "Immediate deny triggered".to_string(),
-                            ]
+                                "Immediate deny triggered".to_string()]
                             .join(" → "),
                         ),
                     },
@@ -320,7 +316,7 @@ impl VerdictService {
                         .lock()
                         .unwrap()
                         .record_request(elapsed as f64, tokens_used);
-                    verdict.confidence = verdict.confidence.max(0.0).min(1.0);
+                    verdict.confidence = verdict.confidence.clamp(0.0, 1.0);
                     return verdict;
                 }
                 Err(e) => {
@@ -506,32 +502,27 @@ impl VerdictService {
                                     // json path is bound as a parameter, never interpolated
                                     let json_path = format!("$.{}", field);
                                     let query = "SELECT AVG(amount), COUNT(amount), SUM(amount*amount) FROM (SELECT CAST(JSON_EXTRACT(payload, ?) AS REAL) AS amount FROM actions WHERE agent_id = ? AND status != 'pending' AND payload IS NOT NULL) WHERE amount IS NOT NULL";
-                                    if let Ok(row) = sqlx::query_as::<_, (Option<f64>, i64, Option<f64>)>(query)
-                                        .bind(&json_path)
-                                        .bind(&action.agent_id)
-                                        .fetch_one(&self.pool)
-                                        .await
+                                    if let Ok((Some(avg), count, Some(sum_sq))) =
+                                        sqlx::query_as::<_, (Option<f64>, i64, Option<f64>)>(query)
+                                            .bind(&json_path)
+                                            .bind(&action.agent_id)
+                                            .fetch_one(&self.pool)
+                                            .await
                                     {
-                                        if let (Some(avg), count, Some(sum_sq)) = row {
-                                            if count > 5 {
-                                                let variance = (sum_sq / count as f64) - (avg * avg);
-                                                let stddev = variance.sqrt();
-                                                if stddev > 0.0 {
-                                                    let deviation = (val - avg).abs() / stddev;
-                                                    if deviation > stddev_threshold && !is_dry_run {
-                                                        return Ok(PolicyEvaluation {
-                                                            immediate_deny: true,
-                                                            reason: Some(format!(
-                                                                "Histogram anomaly: {} = {:.2} deviates {:.1}σ from mean {:.2} (threshold: {:.0}σ)",
-                                                                field, val, deviation, avg, stddev_threshold
-                                                            )),
-                                                            risk_level: Some(crate::models::RiskLevel::High),
-                                                            matched_policy_id: Some(policy.id.clone()),
-                                                            context: context_parts.join("; "),
-                                                        });
-                                                    }
-                                                }
-                                            }
+                                        let variance = (sum_sq / count as f64) - (avg * avg);
+                                        let stddev = variance.sqrt();
+                                        let deviation = (val - avg).abs() / stddev;
+                                        if count > 5 && stddev > 0.0 && deviation > stddev_threshold && !is_dry_run {
+                                            return Ok(PolicyEvaluation {
+                                                immediate_deny: true,
+                                                reason: Some(format!(
+                                                    "Histogram anomaly: {} = {:.2} deviates {:.1}σ from mean {:.2} (threshold: {:.0}σ)",
+                                                    field, val, deviation, avg, stddev_threshold
+                                                )),
+                                                risk_level: Some(crate::models::RiskLevel::High),
+                                                matched_policy_id: Some(policy.id.clone()),
+                                                context: context_parts.join("; "),
+                                            });
                                         }
                                     }
                                 }
@@ -716,8 +707,3 @@ pub struct PolicyEvaluation {
     context: String,
 }
 
-pub struct RuleResult {
-    immediate_deny: bool,
-    message: String,
-    risk_level: crate::models::RiskLevel,
-}

@@ -17,10 +17,6 @@ pub struct OAuthState {
 }
 
 impl OAuthState {
-    pub fn new(config: OAuthConfig) -> Self {
-        Self::with_pool(config, None)
-    }
-
     pub fn with_pool(config: OAuthConfig, pool: Option<crate::db::DbPool>) -> Self {
         let provider = OAuthProvider::new(config);
         Self {

@@ -534,7 +534,7 @@ async fn test_action_create_via_http_with_valid_key() {
 
     let body: serde_json::Value = resp.json().await.unwrap();
     assert_eq!(body["status"], "pending");
-    assert!(body["id"].as_str().unwrap().len() > 0);
+    assert!(!body["id"].as_str().unwrap().is_empty());
 }
 
 #[tokio::test]
@@ -689,7 +689,7 @@ async fn test_admin_register_agent_via_http() {
 
     let body: serde_json::Value = resp.json().await.unwrap();
     assert_eq!(body["name"], "http-registered-agent");
-    assert!(body["api_key"].as_str().unwrap().len() > 0);
+    assert!(!body["api_key"].as_str().unwrap().is_empty());
 }
 
 #[tokio::test]
@@ -1015,7 +1015,7 @@ async fn test_audit_chain_backfill_makes_legacy_rows_verifiable() {
     assert_eq!(second, 0);
 
     let report = deko::services::audit::verify_chain(&pool).await.unwrap();
-    assert_eq!(report.valid, true);
+    assert!(report.valid);
     assert_eq!(report.entries_checked, 3);
 }
 

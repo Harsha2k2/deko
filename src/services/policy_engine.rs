@@ -268,7 +268,7 @@ fn evaluate_simple(rule: &serde_json::Value, input: &RuleInput, rule_type: &str)
             let blocked = rule.get("blocked_countries")?.as_array()?;
             if blocked
                 .iter()
-                .any(|b| b.as_str().map_or(false, |b| b.eq_ignore_ascii_case(country)))
+                .any(|b| b.as_str().is_some_and(|b| b.eq_ignore_ascii_case(country)))
             {
                 return outcome(
                     true,
