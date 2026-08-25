@@ -1018,3 +1018,39 @@ async fn test_audit_chain_backfill_makes_legacy_rows_verifiable() {
     assert_eq!(report.valid, true);
     assert_eq!(report.entries_checked, 3);
 }
+
+// ---- unified policy engine ----
+
+#[tokio::test]
+async fn test_policy_test_endpoint_fails_closed_on_unknown_rule() {
+    let (pool, pool_set) = setup_test_db().await;
+    let config = test_config();
+    let app = create_router(
+        &config,
+        pool.clone(),
+        pool_set.clone(),
+        std::sync::Arc::new(deko::services::ws_broadcaster::WsBroadcaster::new(64)),
+    )
+    .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+    let client = reqwest::Client::new();
+
+    // typo'd rule type must deny, never silently pass
+    let resp = client
+        .post(format!("http://127.0.0.1:{}/admin/policies/test", addr.port()))
+        .header("X-Admin-Password", "testpassword")
+        .json(&serde_json::json!({
+            "rules": [{"type": "deny_keywords", "keywords": ["nope"]}],
+            "intent": "harmless action"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(body["matched"], true);
+    assert_eq!(body["immediate_deny"], true, "unknown rule types must fail closed");
+}

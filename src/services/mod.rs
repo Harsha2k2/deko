@@ -4,6 +4,7 @@ pub mod egress;
 pub mod llm;
 pub mod metrics;
 pub mod oauth;
+pub mod policy_engine;
 pub mod processor;
 pub mod prompt_injection;
 pub mod providers;
