@@ -178,12 +178,18 @@ pub async fn export_actions_csv(
     let status_filter = params.get("status").and_then(|v| v.as_str()).unwrap_or("");
     let mut query = "SELECT a.id, ag.name, a.intent, a.status, v.decision, v.risk_level, a.created_at FROM actions a JOIN agents ag ON a.agent_id = ag.id LEFT JOIN verdicts v ON a.id = v.action_id".to_string();
     if !status_filter.is_empty() {
-        query.push_str(&format!(" WHERE a.status = '{}'", status_filter));
+        query.push_str(" WHERE a.status = ?");
     }
     query.push_str(" ORDER BY a.created_at DESC LIMIT 1000");
 
-    let rows: Vec<(String, String, String, String, Option<String>, Option<String>, String)> =
-        sqlx::query_as(&query).fetch_all(&pool).await.unwrap_or_default();
+    let mut q = sqlx::query_as::<
+        _,
+        (String, String, String, String, Option<String>, Option<String>, String),
+    >(&query);
+    if !status_filter.is_empty() {
+        q = q.bind(status_filter);
+    }
+    let rows = q.fetch_all(&pool).await.unwrap_or_default();
 
     let mut csv = "id,agent,intent,status,decision,risk_level,created_at\n".to_string();
     for row in rows {
@@ -214,13 +220,17 @@ pub async fn export_audit_log(
 ) -> Result<String> {
     let limit = params.limit.unwrap_or(1000).min(10000);
     let mut query = "SELECT id, action_id, event_type, details, created_at FROM audit_log".to_string();
-    if let Some(ref et) = params.event_type {
-        query.push_str(&format!(" WHERE event_type = '{}'", et));
+    if params.event_type.is_some() {
+        query.push_str(" WHERE event_type = ?");
     }
-    query.push_str(&format!(" ORDER BY created_at DESC LIMIT {}", limit));
+    query.push_str(" ORDER BY created_at DESC LIMIT ?");
 
-    let rows: Vec<(String, Option<String>, String, String, String)> =
-        sqlx::query_as(&query).fetch_all(&pool).await.unwrap_or_default();
+    let mut q = sqlx::query_as::<_, (String, Option<String>, String, String, String)>(&query);
+    if let Some(ref et) = params.event_type {
+        q = q.bind(et);
+    }
+    q = q.bind(limit);
+    let rows = q.fetch_all(&pool).await.unwrap_or_default();
 
     let mut csv = "id,action_id,event_type,details,created_at\n".to_string();
     for row in rows {

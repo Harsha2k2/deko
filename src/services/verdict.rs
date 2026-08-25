@@ -410,11 +410,11 @@ impl VerdictService {
                             if let Ok(payload_json) = serde_json::from_str::<serde_json::Value>(payload_str) {
                                 let current_val = payload_json.get(field).and_then(|v| v.as_f64());
                                 if let Some(val) = current_val {
-                                    let query = format!(
-                                        "SELECT AVG(amount), COUNT(amount), SUM(amount*amount) FROM (SELECT CAST(JSON_EXTRACT(payload, '$.{}') AS REAL) AS amount FROM actions WHERE agent_id = ? AND status != 'pending' AND payload IS NOT NULL) WHERE amount IS NOT NULL",
-                                        field
-                                    );
-                                    if let Ok(row) = sqlx::query_as::<_, (Option<f64>, i64, Option<f64>)>(&query)
+                                    // json path is bound as a parameter, never interpolated
+                                    let json_path = format!("$.{}", field);
+                                    let query = "SELECT AVG(amount), COUNT(amount), SUM(amount*amount) FROM (SELECT CAST(JSON_EXTRACT(payload, ?) AS REAL) AS amount FROM actions WHERE agent_id = ? AND status != 'pending' AND payload IS NOT NULL) WHERE amount IS NOT NULL";
+                                    if let Ok(row) = sqlx::query_as::<_, (Option<f64>, i64, Option<f64>)>(query)
+                                        .bind(&json_path)
                                         .bind(&action.agent_id)
                                         .fetch_one(&self.pool)
                                         .await
@@ -447,10 +447,10 @@ impl VerdictService {
                     }
                     if rule.get("type").and_then(|t| t.as_str()) == Some("budget_limit") {
                         let max_budget = rule.get("max_budget").and_then(|v| v.as_f64()).unwrap_or(10000.0);
-                        if let Ok((total,)) = sqlx::query_as::<_, (f64,)>(&format!(
-                            "SELECT COALESCE(SUM(amount), 0) FROM (SELECT CAST(JSON_EXTRACT(payload, '$.amount') AS REAL) AS amount FROM actions WHERE agent_id = '{}' AND status != 'denied')",
-                            action.agent_id
-                        ))
+                        if let Ok((total,)) = sqlx::query_as::<_, (f64,)>(
+                            "SELECT COALESCE(SUM(amount), 0) FROM (SELECT CAST(JSON_EXTRACT(payload, '$.amount') AS REAL) AS amount FROM actions WHERE agent_id = ? AND status != 'denied')",
+                        )
+                        .bind(&action.agent_id)
                         .fetch_one(&self.pool)
                         .await {
                             if total >= max_budget && !is_dry_run {
