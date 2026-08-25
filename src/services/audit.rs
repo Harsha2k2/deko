@@ -159,6 +159,30 @@ pub async fn verify_chain(pool: &SqlitePool) -> Result<ChainReport> {
     })
 }
 
+/// writes the current chain head to a file outside the database.
+///
+/// the hash chain detects edits and middle-row deletions, but truncating the
+/// newest rows leaves an internally-valid chain. comparing against a
+/// checkpoint stored elsewhere closes that window: if the live head differs
+/// from the checkpoint while the chain verifies, rows went missing.
+///
+/// atomic via temp-file + rename so a crash never corrupts the checkpoint.
+pub fn write_head_checkpoint(head: &str, dir: &std::path::Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dir)?;
+    let tmp = dir.join("audit-head-checkpoint.txt.tmp");
+    let dst = dir.join("audit-head-checkpoint.txt");
+    std::fs::write(&tmp, head)?;
+    std::fs::rename(tmp, dst)
+}
+
+/// reads the last recorded checkpoint, if any.
+pub fn read_head_checkpoint(dir: &std::path::Path) -> Option<String> {
+    std::fs::read_to_string(dir.join("audit-head-checkpoint.txt"))
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
 /// chains any rows written before the hash columns existed.
 /// returns how many rows were backfilled. safe to run repeatedly.
 pub async fn backfill_unchained(pool: &SqlitePool) -> Result<u64> {
@@ -256,5 +280,34 @@ mod tests {
         let with_none = compute_entry_hash(GENESIS_HASH, None, "evt", "{}", "t");
         let with_empty = compute_entry_hash(GENESIS_HASH, Some(""), "evt", "{}", "t");
         assert_eq!(with_none, with_empty);
+    }
+}
+
+#[cfg(test)]
+mod checkpoint_tests {
+    use super::*;
+
+    #[test]
+    fn head_checkpoint_roundtrips() {
+        let dir = std::env::temp_dir().join(format!("deko-audit-test-{}", uuid::Uuid::new_v4()));
+        assert!(read_head_checkpoint(&dir).is_none());
+
+        write_head_checkpoint("abc123", &dir).unwrap();
+        assert_eq!(read_head_checkpoint(&dir), Some("abc123".to_string()));
+
+        // overwrite works (atomic rename)
+        write_head_checkpoint("def456", &dir).unwrap();
+        assert_eq!(read_head_checkpoint(&dir), Some("def456".to_string()));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn empty_checkpoint_file_reads_as_none() {
+        let dir = std::env::temp_dir().join(format!("deko-audit-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("audit-head-checkpoint.txt"), "  \n").unwrap();
+        assert!(read_head_checkpoint(&dir).is_none());
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

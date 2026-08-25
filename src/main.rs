@@ -88,6 +88,51 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
+    // verify chain integrity, then compare against the external checkpoint:
+    // an internally-valid chain whose head differs from the last checkpoint
+    // means rows were truncated while we were away
+    let checkpoint_dir = std::path::Path::new("data");
+    let audit_report = match services::audit::verify_chain(&pool).await {
+        Ok(r) => r,
+        Err(e) => {
+            error!("audit chain verification failed: {}", e);
+            return Err(e.into());
+        }
+    };
+    if !audit_report.valid {
+        error!(
+            "audit chain is BROKEN at entry {:?} ({} entries checked) — refusing to start",
+            audit_report.first_broken_id, audit_report.entries_checked
+        );
+        return Err(anyhow::anyhow!("audit trail integrity check failed"));
+    }
+    info!(
+        "audit chain verified: {} entries, head {}",
+        audit_report.entries_checked,
+        audit_report.chain_head.as_deref().unwrap_or("-")
+    );
+
+    if let Some(previous) = services::audit::read_head_checkpoint(checkpoint_dir) {
+        let current = audit_report.chain_head.clone().unwrap_or_default();
+        if previous != current {
+            let msg = format!(
+                "audit head moved from checkpoint {} to {}: possible tail truncation or database restore",
+                &previous[..16.min(previous.len())],
+                &current[..16.min(current.len())]
+            );
+            if std::env::var("DEKO_AUDIT_STRICT").as_deref() == Ok("true") {
+                error!("{} (DEKO_AUDIT_STRICT=true: refusing to start)", msg);
+                return Err(anyhow::anyhow!("{}", msg));
+            }
+            warn!("{} (set DEKO_AUDIT_STRICT=true to make this fatal)", msg);
+        }
+    }
+    if let Some(head) = &audit_report.chain_head {
+        if let Err(e) = services::audit::write_head_checkpoint(head, checkpoint_dir) {
+            warn!("could not write audit head checkpoint: {}", e);
+        }
+    }
+
     match services::session::purge_expired(&pool).await {
         Ok(n) if n > 0 => info!("purged {} expired admin sessions", n),
         Ok(_) => {}
