@@ -13,10 +13,11 @@ pub struct AdminLoginRequest {
 }
 
 pub async fn admin_logout() -> impl axum::response::IntoResponse {
-    use axum::http::header::{SET_COOKIE, HeaderValue};
+    use axum::http::header::{HeaderValue, SET_COOKIE};
     let cookie = "deko_admin=; Path=/; HttpOnly; Max-Age=0";
     let mut resp = axum::Json(serde_json::json!({ "ok": true })).into_response();
-    resp.headers_mut().insert(SET_COOKIE, HeaderValue::from_str(cookie).unwrap());
+    resp.headers_mut()
+        .insert(SET_COOKIE, HeaderValue::from_str(cookie).unwrap());
     resp
 }
 
@@ -41,7 +42,7 @@ pub async fn admin_login(
 ) -> Result<axum::response::Response> {
     check_login_rate_limit()?;
     record_login_attempt();
-    use axum::http::header::{SET_COOKIE, HeaderValue};
+    use axum::http::header::{HeaderValue, SET_COOKIE};
 
     let config = crate::config::Config::from_env().map_err(|_| AppError::Internal)?;
     if req.password != config.admin_password {
@@ -53,7 +54,10 @@ pub async fn admin_login(
         req.password
     );
     let mut headers = axum::http::HeaderMap::new();
-    headers.insert(SET_COOKIE, HeaderValue::from_str(&cookie_value).map_err(|_| AppError::Internal)?);
+    headers.insert(
+        SET_COOKIE,
+        HeaderValue::from_str(&cookie_value).map_err(|_| AppError::Internal)?,
+    );
 
     let mut response = axum::Json(serde_json::json!({ "ok": true })).into_response();
     *response.headers_mut() = headers;
@@ -76,7 +80,9 @@ pub async fn override_action(
     }
 
     if headers.get("X-Admin-Confirm").and_then(|v| v.to_str().ok()) != Some("yes") {
-        return Err(AppError::BadRequest("Confirmation required: set X-Admin-Confirm: yes header".into()));
+        return Err(AppError::BadRequest(
+            "Confirmation required: set X-Admin-Confirm: yes header".into(),
+        ));
     }
 
     let action = sqlx::query_as::<_, Action>(
@@ -89,7 +95,9 @@ pub async fn override_action(
     .ok_or_else(|| AppError::NotFound("Action not found".into()))?;
 
     if action.status != ActionStatus::Denied && action.status != ActionStatus::Escalated {
-        return Err(AppError::BadRequest("Can only override denied or escalated actions".into()));
+        return Err(AppError::BadRequest(
+            "Can only override denied or escalated actions".into(),
+        ));
     }
 
     let mut tx = pool.begin().await.map_err(AppError::Database)?;
@@ -126,7 +134,9 @@ pub async fn bulk_override_actions(
     Json(req): Json<BulkOverrideRequest>,
 ) -> Result<Json<serde_json::Value>> {
     if headers.get("X-Admin-Confirm").and_then(|v| v.to_str().ok()) != Some("yes") {
-        return Err(AppError::BadRequest("Confirmation required: set X-Admin-Confirm: yes header".into()));
+        return Err(AppError::BadRequest(
+            "Confirmation required: set X-Admin-Confirm: yes header".into(),
+        ));
     }
     if req.reason.trim().is_empty() {
         return Err(AppError::BadRequest("reason is required".into()));
@@ -156,7 +166,9 @@ pub async fn bulk_override_actions(
         }
     }
 
-    Ok(Json(serde_json::json!({ "overridden": overridden, "total": req.action_ids.len() })))
+    Ok(Json(
+        serde_json::json!({ "overridden": overridden, "total": req.action_ids.len() }),
+    ))
 }
 
 pub async fn export_actions_csv(
@@ -170,16 +182,21 @@ pub async fn export_actions_csv(
     }
     query.push_str(" ORDER BY a.created_at DESC LIMIT 1000");
 
-    let rows: Vec<(String, String, String, String, Option<String>, Option<String>, String)> = sqlx::query_as(&query)
-        .fetch_all(&pool)
-        .await
-        .unwrap_or_default();
+    let rows: Vec<(String, String, String, String, Option<String>, Option<String>, String)> =
+        sqlx::query_as(&query).fetch_all(&pool).await.unwrap_or_default();
 
     let mut csv = "id,agent,intent,status,decision,risk_level,created_at\n".to_string();
     for row in rows {
-        csv.push_str(&format!("\"{}\",\"{}\",\"{}\",{},{},{},{}\n",
-            row.0, row.1, row.2.replace('"', "\"\""), row.3,
-            row.4.unwrap_or_default(), row.5.unwrap_or_default(), row.6));
+        csv.push_str(&format!(
+            "\"{}\",\"{}\",\"{}\",{},{},{},{}\n",
+            row.0,
+            row.1,
+            row.2.replace('"', "\"\""),
+            row.3,
+            row.4.unwrap_or_default(),
+            row.5.unwrap_or_default(),
+            row.6
+        ));
     }
 
     Ok(csv)
@@ -202,15 +219,19 @@ pub async fn export_audit_log(
     }
     query.push_str(&format!(" ORDER BY created_at DESC LIMIT {}", limit));
 
-    let rows: Vec<(String, Option<String>, String, String, String)> = sqlx::query_as(&query)
-        .fetch_all(&pool)
-        .await
-        .unwrap_or_default();
+    let rows: Vec<(String, Option<String>, String, String, String)> =
+        sqlx::query_as(&query).fetch_all(&pool).await.unwrap_or_default();
 
     let mut csv = "id,action_id,event_type,details,created_at\n".to_string();
     for row in rows {
-        csv.push_str(&format!("\"{}\",\"{}\",\"{}\",\"{}\",{}\n",
-            row.0, row.1.unwrap_or_default(), row.2, row.3.replace('"', "\"\""), row.4));
+        csv.push_str(&format!(
+            "\"{}\",\"{}\",\"{}\",\"{}\",{}\n",
+            row.0,
+            row.1.unwrap_or_default(),
+            row.2,
+            row.3.replace('"', "\"\""),
+            row.4
+        ));
     }
 
     Ok(csv)
@@ -257,5 +278,6 @@ pub async fn search_audit_log(
         "results": results,
         "total": results.len(),
         "query": params.q,
-    })).unwrap_or_default())
+    }))
+    .unwrap_or_default())
 }

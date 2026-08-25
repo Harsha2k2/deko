@@ -101,27 +101,29 @@ pub async fn create_action(
         let size_bytes = screenshot.len();
         let max_bytes = 10 * 1024 * 1024;
         if size_bytes > max_bytes {
-            return Err(AppError::BadRequest(
-                format!("Screenshot too large: {} bytes exceeds {} MB limit", size_bytes, 10),
-            ));
+            return Err(AppError::BadRequest(format!(
+                "Screenshot too large: {} bytes exceeds {} MB limit",
+                size_bytes, 10
+            )));
         }
     }
 
     if let Some(ref url) = req.target_url {
         if !url.starts_with("http://") && !url.starts_with("https://") {
-            return Err(AppError::BadRequest("target_url must start with http:// or https://".into()));
+            return Err(AppError::BadRequest(
+                "target_url must start with http:// or https://".into(),
+            ));
         }
     }
 
     if let Some(ref ik) = req.idempotency_key {
-        let existing: Option<(String, String)> = sqlx::query_as(
-            "SELECT id, status FROM actions WHERE agent_id = ? AND idempotency_key = ?",
-        )
-        .bind(&agent.id)
-        .bind(ik)
-        .fetch_optional(&pool)
-        .await
-        .map_err(AppError::Database)?;
+        let existing: Option<(String, String)> =
+            sqlx::query_as("SELECT id, status FROM actions WHERE agent_id = ? AND idempotency_key = ?")
+                .bind(&agent.id)
+                .bind(ik)
+                .fetch_optional(&pool)
+                .await
+                .map_err(AppError::Database)?;
 
         if let Some((existing_id, existing_status)) = existing {
             let status = match existing_status.as_str() {
@@ -145,7 +147,10 @@ pub async fn create_action(
 
     let id = uuid::Uuid::new_v4().to_string();
 
-    let mut metadata = req.metadata.clone().unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
+    let mut metadata = req
+        .metadata
+        .clone()
+        .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
     if let Some(transform) = &req.response_transform {
         if let serde_json::Value::Object(ref mut map) = metadata {
             map.insert("response_transform".to_string(), transform.clone());
@@ -172,20 +177,18 @@ pub async fn create_action(
     .await
     .map_err(AppError::Database)?;
 
-    sqlx::query(
-        "INSERT INTO audit_log (id, action_id, event_type, details) VALUES (?, ?, ?, ?)",
-    )
-    .bind(uuid::Uuid::new_v4().to_string())
-    .bind(&id)
-    .bind("action_created")
-    .bind(serde_json::json!({
-        "agent_id": agent.id,
-        "agent_name": agent.name,
-        "intent": sanitized_intent,
-    }))
-    .execute(&pool)
-    .await
-    .map_err(AppError::Database)?;
+    sqlx::query("INSERT INTO audit_log (id, action_id, event_type, details) VALUES (?, ?, ?, ?)")
+        .bind(uuid::Uuid::new_v4().to_string())
+        .bind(&id)
+        .bind("action_created")
+        .bind(serde_json::json!({
+            "agent_id": agent.id,
+            "agent_name": agent.name,
+            "intent": sanitized_intent,
+        }))
+        .execute(&pool)
+        .await
+        .map_err(AppError::Database)?;
 
     Ok((
         StatusCode::CREATED,
@@ -320,10 +323,9 @@ pub async fn get_action_status(
 
     let mut response = axum::Json(body).into_response();
     if verdict.is_none() {
-        response.headers_mut().insert(
-            "Retry-After",
-            HeaderValue::from_static("5"),
-        );
+        response
+            .headers_mut()
+            .insert("Retry-After", HeaderValue::from_static("5"));
     }
 
     Ok(response)
@@ -366,16 +368,14 @@ pub async fn batch_create_actions(
         .await
         .map_err(AppError::Database)?;
 
-        sqlx::query(
-            "INSERT INTO audit_log (id, action_id, event_type, details) VALUES (?, ?, ?, ?)",
-        )
-        .bind(uuid::Uuid::new_v4().to_string())
-        .bind(&id)
-        .bind("action_created")
-        .bind(serde_json::json!({"agent_id": agent.id, "intent": sanitized_intent, "batch": true}))
-        .execute(&pool)
-        .await
-        .ok();
+        sqlx::query("INSERT INTO audit_log (id, action_id, event_type, details) VALUES (?, ?, ?, ?)")
+            .bind(uuid::Uuid::new_v4().to_string())
+            .bind(&id)
+            .bind("action_created")
+            .bind(serde_json::json!({"agent_id": agent.id, "intent": sanitized_intent, "batch": true}))
+            .execute(&pool)
+            .await
+            .ok();
 
         results.push(serde_json::json!({
             "id": id,

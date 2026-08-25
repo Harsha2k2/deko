@@ -101,7 +101,10 @@ impl IntoResponse for AppError {
             AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg.clone()),
             AppError::Internal => {
                 log_first_backtrace();
-                (StatusCode::INTERNAL_SERVER_ERROR, sanitize_for_prod("Internal server error"))
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    sanitize_for_prod("Internal server error"),
+                )
             }
             AppError::OpenAI(msg) => {
                 log_first_backtrace();

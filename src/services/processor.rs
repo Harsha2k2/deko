@@ -1,6 +1,6 @@
-use std::sync::Arc;
 use crate::db::DbPool;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use tokio::time::{interval, Duration};
 use tracing::{error, info};
 
@@ -16,7 +16,13 @@ pub struct ActionProcessor {
 }
 
 impl ActionProcessor {
-    pub fn new(pool: DbPool, verdict_service: Arc<VerdictService>, interval_secs: u64, action_ttl_secs: u64, batch_size: u32) -> Self {
+    pub fn new(
+        pool: DbPool,
+        verdict_service: Arc<VerdictService>,
+        interval_secs: u64,
+        action_ttl_secs: u64,
+        batch_size: u32,
+    ) -> Self {
         Self {
             pool,
             verdict_service,
@@ -59,7 +65,10 @@ impl ActionProcessor {
         if let Ok(r) = result {
             let expired = r.rows_affected();
             if expired > 0 {
-                info!("Expired {} stale pending actions (TTL: {}s)", expired, self.action_ttl_secs);
+                info!(
+                    "Expired {} stale pending actions (TTL: {}s)",
+                    expired, self.action_ttl_secs
+                );
             }
         }
     }
@@ -69,9 +78,7 @@ impl ActionProcessor {
             "SELECT id FROM actions WHERE status = 'pending' AND (execute_at IS NULL OR execute_at <= CURRENT_TIMESTAMP) ORDER BY priority ASC, created_at ASC LIMIT {}",
             self.batch_size
         );
-        let pending_actions: Vec<String> = sqlx::query_scalar(&sql)
-            .fetch_all(&self.pool)
-            .await?;
+        let pending_actions: Vec<String> = sqlx::query_scalar(&sql).fetch_all(&self.pool).await?;
 
         if pending_actions.is_empty() {
             return Ok(());

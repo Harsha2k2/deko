@@ -37,29 +37,25 @@ pub async fn create_policy(
     }
 
     let id = uuid::Uuid::new_v4().to_string();
-    let rules_str = serde_json::to_string(&req.rules)
-        .map_err(|e| AppError::BadRequest(format!("Invalid rules JSON: {}", e)))?;
+    let rules_str =
+        serde_json::to_string(&req.rules).map_err(|e| AppError::BadRequest(format!("Invalid rules JSON: {}", e)))?;
 
-    sqlx::query(
-        "INSERT INTO policies (id, name, description, rules, active) VALUES (?, ?, ?, ?, 1)",
-    )
-    .bind(&id)
-    .bind(&req.name)
-    .bind(&req.description)
-    .bind(&rules_str)
-    .execute(&pool)
-    .await
-    .map_err(AppError::Database)?;
+    sqlx::query("INSERT INTO policies (id, name, description, rules, active) VALUES (?, ?, ?, ?, 1)")
+        .bind(&id)
+        .bind(&req.name)
+        .bind(&req.description)
+        .bind(&rules_str)
+        .execute(&pool)
+        .await
+        .map_err(AppError::Database)?;
 
-    sqlx::query(
-        "INSERT INTO audit_log (id, action_id, event_type, details) VALUES (?, NULL, ?, ?)",
-    )
-    .bind(uuid::Uuid::new_v4().to_string())
-    .bind("policy_created")
-    .bind(serde_json::json!({ "policy_id": id, "name": req.name }).to_string())
-    .execute(&pool)
-    .await
-    .map_err(AppError::Database)?;
+    sqlx::query("INSERT INTO audit_log (id, action_id, event_type, details) VALUES (?, NULL, ?, ?)")
+        .bind(uuid::Uuid::new_v4().to_string())
+        .bind("policy_created")
+        .bind(serde_json::json!({ "policy_id": id, "name": req.name }).to_string())
+        .execute(&pool)
+        .await
+        .map_err(AppError::Database)?;
 
     Ok(Json(serde_json::json!({ "id": id, "name": req.name, "active": true })))
 }
@@ -82,17 +78,20 @@ pub async fn list_policies(
     .await
     .map_err(AppError::Database)?;
 
-    let policies = policies.into_iter().map(|p| {
-        serde_json::json!({
-            "id": p.0,
-            "name": p.1,
-            "description": p.2,
-            "rules": serde_json::from_str::<serde_json::Value>(&p.3).unwrap_or(serde_json::Value::Null),
-            "active": p.4,
-            "created_at": p.5,
-            "updated_at": p.6,
+    let policies = policies
+        .into_iter()
+        .map(|p| {
+            serde_json::json!({
+                "id": p.0,
+                "name": p.1,
+                "description": p.2,
+                "rules": serde_json::from_str::<serde_json::Value>(&p.3).unwrap_or(serde_json::Value::Null),
+                "active": p.4,
+                "created_at": p.5,
+                "updated_at": p.6,
+            })
         })
-    }).collect::<Vec<_>>();
+        .collect::<Vec<_>>();
 
     Ok(Json(serde_json::json!({ "policies": policies })))
 }
@@ -156,15 +155,13 @@ pub async fn update_policy(
     q = q.bind(&id);
     q.execute(&pool).await.map_err(AppError::Database)?;
 
-    sqlx::query(
-        "INSERT INTO audit_log (id, action_id, event_type, details) VALUES (?, NULL, ?, ?)",
-    )
-    .bind(uuid::Uuid::new_v4().to_string())
-    .bind("policy_updated")
-    .bind(serde_json::json!({ "policy_id": id }).to_string())
-    .execute(&pool)
-    .await
-    .map_err(AppError::Database)?;
+    sqlx::query("INSERT INTO audit_log (id, action_id, event_type, details) VALUES (?, NULL, ?, ?)")
+        .bind(uuid::Uuid::new_v4().to_string())
+        .bind("policy_updated")
+        .bind(serde_json::json!({ "policy_id": id }).to_string())
+        .execute(&pool)
+        .await
+        .map_err(AppError::Database)?;
 
     Ok(Json(serde_json::json!({ "updated": true, "id": id })))
 }
@@ -190,15 +187,13 @@ pub async fn delete_policy(
         return Err(AppError::NotFound("Policy not found".into()));
     }
 
-    sqlx::query(
-        "INSERT INTO audit_log (id, action_id, event_type, details) VALUES (?, NULL, ?, ?)",
-    )
-    .bind(uuid::Uuid::new_v4().to_string())
-    .bind("policy_deleted")
-    .bind(serde_json::json!({ "policy_id": id }).to_string())
-    .execute(&pool)
-    .await
-    .map_err(AppError::Database)?;
+    sqlx::query("INSERT INTO audit_log (id, action_id, event_type, details) VALUES (?, NULL, ?, ?)")
+        .bind(uuid::Uuid::new_v4().to_string())
+        .bind("policy_deleted")
+        .bind(serde_json::json!({ "policy_id": id }).to_string())
+        .execute(&pool)
+        .await
+        .map_err(AppError::Database)?;
 
     Ok(Json(serde_json::json!({ "deleted": true, "id": id })))
 }
@@ -211,9 +206,7 @@ pub struct TestPolicyRequest {
     pub target_url: Option<String>,
 }
 
-pub async fn test_policy(
-    Json(req): Json<TestPolicyRequest>,
-) -> Result<Json<serde_json::Value>> {
+pub async fn test_policy(Json(req): Json<TestPolicyRequest>) -> Result<Json<serde_json::Value>> {
     let sample_action = crate::models::Action {
         id: "test".into(),
         agent_id: "test".into(),
@@ -240,25 +233,25 @@ pub async fn test_policy(
         for rule in arr {
             let rule_type = rule.get("type").and_then(|t| t.as_str()).unwrap_or("");
             let intent_lower = sample_action.intent.to_lowercase();
- 
-             match rule_type {
-                 "deny_keyword" => {
-                     if let Some(keywords) = rule.get("keywords").and_then(|k| k.as_array()) {
-                         for kw in keywords {
-                             if let Some(kw_str) = kw.as_str() {
-                                 if intent_lower.contains(&kw_str.to_lowercase()) {
-                                     matched = true;
-                                     immediate_deny = true;
-                                     reason = format!("Denied keyword match: {}", kw_str);
-                                     risk_level = Some("critical");
-                                 }
-                             }
-                         }
-                     }
-                 }
-                 "max_amount" => {
-                     if let Some(max) = rule.get("max").and_then(|v| v.as_f64()) {
-                         if let Some(ref payload_str) = sample_action.payload {
+
+            match rule_type {
+                "deny_keyword" => {
+                    if let Some(keywords) = rule.get("keywords").and_then(|k| k.as_array()) {
+                        for kw in keywords {
+                            if let Some(kw_str) = kw.as_str() {
+                                if intent_lower.contains(&kw_str.to_lowercase()) {
+                                    matched = true;
+                                    immediate_deny = true;
+                                    reason = format!("Denied keyword match: {}", kw_str);
+                                    risk_level = Some("critical");
+                                }
+                            }
+                        }
+                    }
+                }
+                "max_amount" => {
+                    if let Some(max) = rule.get("max").and_then(|v| v.as_f64()) {
+                        if let Some(ref payload_str) = sample_action.payload {
                             if let Ok(payload_json) = serde_json::from_str::<serde_json::Value>(payload_str) {
                                 if let Some(amount) = payload_json.get("amount").and_then(|v| v.as_f64()) {
                                     if amount > max {
@@ -297,7 +290,7 @@ pub async fn simulate_policies(
     Json(req): Json<SimulateRequest>,
 ) -> Result<Json<Vec<serde_json::Value>>> {
     let policies: Vec<crate::models::Policy> = sqlx::query_as(
-        "SELECT id, name, description, rules, active, created_at, updated_at FROM policies WHERE active = 1"
+        "SELECT id, name, description, rules, active, created_at, updated_at FROM policies WHERE active = 1",
     )
     .fetch_all(&pool)
     .await
@@ -430,9 +423,7 @@ fn test_policy_inner(req: &TestPolicyRequest) -> Option<SimulateRuleResult> {
                 "url_allowlist" => {
                     if let Some(allowed) = rule.get("patterns").and_then(|k| k.as_array()) {
                         if let Some(ref url) = req.target_url {
-                            let is_allowed = allowed.iter().any(|p| {
-                                p.as_str().is_some_and(|pat| url.contains(pat))
-                            });
+                            let is_allowed = allowed.iter().any(|p| p.as_str().is_some_and(|pat| url.contains(pat)));
                             if !is_allowed {
                                 matched = true;
                                 immediate_deny = true;
@@ -448,7 +439,12 @@ fn test_policy_inner(req: &TestPolicyRequest) -> Option<SimulateRuleResult> {
     }
 
     if matched {
-        Some(SimulateRuleResult { matched, immediate_deny, reason, risk_level })
+        Some(SimulateRuleResult {
+            matched,
+            immediate_deny,
+            reason,
+            risk_level,
+        })
     } else {
         None
     }

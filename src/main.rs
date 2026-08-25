@@ -1,18 +1,18 @@
 mod config;
 mod db;
 mod error;
-mod models;
 mod middleware;
+mod models;
 mod routes;
 mod services;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use config::{Config, init_tracing};
+use config::{init_tracing, Config};
 use db::{init_db, run_migrations};
 use routes::create_router;
-use services::{ActionProcessor, VerdictService, MetricsCollector, ws_broadcaster::WsBroadcaster};
+use services::{ws_broadcaster::WsBroadcaster, ActionProcessor, MetricsCollector, VerdictService};
 use tracing::{error, info};
 
 /// Deko - AI Agent Action Watchdog
@@ -46,7 +46,7 @@ async fn main() -> anyhow::Result<()> {
     tokio::spawn(async move {
         #[cfg(unix)]
         {
-            use tokio::signal::unix::{SignalKind, signal};
+            use tokio::signal::unix::{signal, SignalKind};
             let mut sig = signal(SignalKind::hangup()).expect("Failed to install SIGHUP handler");
             sig.recv().await;
             info!("SIGHUP received: requesting config reload");
@@ -73,9 +73,20 @@ async fn main() -> anyhow::Result<()> {
     let metrics = Arc::new(MetricsCollector::new());
     metrics.set_pool_config(10, 5);
     let ws_broadcaster = Arc::new(WsBroadcaster::new(256));
-    let verdict_service = Arc::new(VerdictService::new(pool.clone(), &config, metrics.clone(), ws_broadcaster.clone()));
+    let verdict_service = Arc::new(VerdictService::new(
+        pool.clone(),
+        &config,
+        metrics.clone(),
+        ws_broadcaster.clone(),
+    ));
     verdict_service.start_health_checks(60);
-    let processor = ActionProcessor::new(pool.clone(), verdict_service.clone(), config.processor_poll_interval_secs, config.action_ttl_secs, 10);
+    let processor = ActionProcessor::new(
+        pool.clone(),
+        verdict_service.clone(),
+        config.processor_poll_interval_secs,
+        config.action_ttl_secs,
+        10,
+    );
     let shutdown = processor.shutdown.clone();
 
     let processor_handle = tokio::spawn(async move {

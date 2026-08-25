@@ -1,11 +1,12 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use aws_config::BehaviorVersion;
 use tracing::{error, info};
 
 use crate::config::{Config, LLMProvider};
 use crate::error::{AppError, Result};
-use crate::services::llm::{LLMProviderTrait, VerdictResult, parse_verdict_json, system_prompt};
+use crate::services::llm::{parse_verdict_json, system_prompt, LLMProviderTrait, VerdictResult};
 
 #[derive(Clone)]
 pub struct UnifiedProvider {
@@ -135,7 +136,9 @@ struct AnthropicMessage {
 #[derive(serde::Serialize)]
 #[serde(untagged)]
 enum AnthropicContent {
-    Text { text: String },
+    Text {
+        text: String,
+    },
     Image {
         source: ImageSource,
         #[serde(rename = "type")]
@@ -201,7 +204,11 @@ struct BedrockMessage {
 #[derive(serde::Serialize)]
 #[serde(untagged)]
 enum BedrockContent {
-    Text { text: String, #[serde(rename = "type")] content_type: String },
+    Text {
+        text: String,
+        #[serde(rename = "type")]
+        content_type: String,
+    },
     Image {
         source: BedrockImageSource,
         #[serde(rename = "type")]
@@ -284,13 +291,24 @@ impl UnifiedProvider {
         )
     }
 
-    async fn call_openai(&self, intent: &str, payload: Option<&str>, screenshot_base64: Option<&str>, policy_context: &str) -> Result<VerdictResult> {
-        let api_key = self.config.openai_api_key.as_deref()
+    async fn call_openai(
+        &self,
+        intent: &str,
+        payload: Option<&str>,
+        screenshot_base64: Option<&str>,
+        policy_context: &str,
+    ) -> Result<VerdictResult> {
+        let api_key = self
+            .config
+            .openai_api_key
+            .as_deref()
             .ok_or_else(|| AppError::OpenAI("OPENAI_API_KEY not configured".into()))?;
 
         let mut messages = vec![ChatMessage {
             role: "system".to_string(),
-            content: vec![ChatContent::Text { text: system_prompt().to_string() }],
+            content: vec![ChatContent::Text {
+                text: system_prompt().to_string(),
+            }],
         }];
 
         let mut user_text = format!("Action Intent: {}\n", intent);
@@ -309,23 +327,43 @@ impl UnifiedProvider {
             });
         }
 
-        messages.push(ChatMessage { role: "user".to_string(), content: content_parts });
+        messages.push(ChatMessage {
+            role: "user".to_string(),
+            content: content_parts,
+        });
 
         let req_body = ChatRequest {
             model: self.model_for_provider(),
             messages,
             max_tokens: 512,
             temperature: 0.0,
-            response_format: Some(ResponseFormat { format_type: "json_object".to_string() }),
+            response_format: Some(ResponseFormat {
+                format_type: "json_object".to_string(),
+            }),
         };
 
         info!("OpenAI request: model={}", self.config.openai_model);
-        let text = self.send_chat_request("https://api.openai.com/v1/chat/completions", Some(("Authorization", format!("Bearer {}", api_key))), &req_body).await?;
+        let text = self
+            .send_chat_request(
+                "https://api.openai.com/v1/chat/completions",
+                Some(("Authorization", format!("Bearer {}", api_key))),
+                &req_body,
+            )
+            .await?;
         parse_verdict_json(&text, LLMProvider::OpenAI, self.model_for_provider())
     }
 
-    async fn call_gemini(&self, intent: &str, payload: Option<&str>, screenshot_base64: Option<&str>, policy_context: &str) -> Result<VerdictResult> {
-        let api_key = self.config.gemini_api_key.as_deref()
+    async fn call_gemini(
+        &self,
+        intent: &str,
+        payload: Option<&str>,
+        screenshot_base64: Option<&str>,
+        policy_context: &str,
+    ) -> Result<VerdictResult> {
+        let api_key = self
+            .config
+            .gemini_api_key
+            .as_deref()
             .ok_or_else(|| AppError::OpenAI("GEMINI_API_KEY not configured".into()))?;
 
         let mut user_text = format!("{}\n\n", system_prompt());
@@ -347,8 +385,14 @@ impl UnifiedProvider {
         }
 
         let req_body = GeminiRequest {
-            contents: vec![GeminiContent { role: "user".to_string(), parts }],
-            generation_config: GenerationConfig { temperature: 0.0, max_output_tokens: 512 },
+            contents: vec![GeminiContent {
+                role: "user".to_string(),
+                parts,
+            }],
+            generation_config: GenerationConfig {
+                temperature: 0.0,
+                max_output_tokens: 512,
+            },
         };
 
         let url = format!(
@@ -358,26 +402,39 @@ impl UnifiedProvider {
 
         info!("Gemini request: model={}", self.config.gemini_model);
 
-        let text = self.send_retry(&url, None, &req_body, |resp: GeminiResponse| {
-            resp.candidates
-                .first()
-                .and_then(|c| c.content.parts.first())
-                .and_then(|p| p.text.clone())
-                .ok_or_else(|| AppError::OpenAI("Gemini returned empty response".into()))
-        }).await?;
+        let text = self
+            .send_retry(&url, None, &req_body, |resp: GeminiResponse| {
+                resp.candidates
+                    .first()
+                    .and_then(|c| c.content.parts.first())
+                    .and_then(|p| p.text.clone())
+                    .ok_or_else(|| AppError::OpenAI("Gemini returned empty response".into()))
+            })
+            .await?;
 
         parse_verdict_json(&text, LLMProvider::Gemini, self.model_for_provider())
     }
 
-    async fn call_anthropic(&self, intent: &str, payload: Option<&str>, screenshot_base64: Option<&str>, policy_context: &str) -> Result<VerdictResult> {
-        let api_key = self.config.anthropic_api_key.as_deref()
+    async fn call_anthropic(
+        &self,
+        intent: &str,
+        payload: Option<&str>,
+        screenshot_base64: Option<&str>,
+        policy_context: &str,
+    ) -> Result<VerdictResult> {
+        let api_key = self
+            .config
+            .anthropic_api_key
+            .as_deref()
             .ok_or_else(|| AppError::OpenAI("ANTHROPIC_API_KEY not configured".into()))?;
 
         let user_message = if let Some(screenshot) = screenshot_base64 {
             AnthropicMessage {
                 role: "user".to_string(),
                 content: vec![
-                    AnthropicContent::Text { text: self.user_prompt(intent, payload, policy_context) },
+                    AnthropicContent::Text {
+                        text: self.user_prompt(intent, payload, policy_context),
+                    },
                     AnthropicContent::Image {
                         source: ImageSource {
                             source_type: "base64".to_string(),
@@ -391,7 +448,9 @@ impl UnifiedProvider {
         } else {
             AnthropicMessage {
                 role: "user".to_string(),
-                content: vec![AnthropicContent::Text { text: self.user_prompt(intent, payload, policy_context) }],
+                content: vec![AnthropicContent::Text {
+                    text: self.user_prompt(intent, payload, policy_context),
+                }],
             }
         };
 
@@ -408,7 +467,13 @@ impl UnifiedProvider {
         parse_verdict_json(&text, LLMProvider::Anthropic, self.model_for_provider())
     }
 
-    async fn call_ollama(&self, intent: &str, payload: Option<&str>, _screenshot_base64: Option<&str>, policy_context: &str) -> Result<VerdictResult> {
+    async fn call_ollama(
+        &self,
+        intent: &str,
+        payload: Option<&str>,
+        _screenshot_base64: Option<&str>,
+        policy_context: &str,
+    ) -> Result<VerdictResult> {
         let prompt = self.user_prompt(intent, payload, policy_context);
 
         let req_body = OllamaRequest {
@@ -416,30 +481,48 @@ impl UnifiedProvider {
             system: system_prompt().to_string(),
             prompt,
             stream: false,
-            options: OllamaOptions { temperature: 0.1, num_predict: 1024 },
+            options: OllamaOptions {
+                temperature: 0.1,
+                num_predict: 1024,
+            },
         };
 
         let url = format!("{}/api/generate", self.config.ollama_base_url.trim_end_matches('/'));
         info!("Ollama request: model={}", self.config.ollama_model);
 
-        let text = self.send_raw(&url, None, &req_body, |resp: OllamaResponse| resp.response).await?;
+        let text = self
+            .send_raw(&url, None, &req_body, |resp: OllamaResponse| resp.response)
+            .await?;
         parse_verdict_json(&text, LLMProvider::Ollama, self.model_for_provider())
     }
 
-    async fn call_azure(&self, intent: &str, payload: Option<&str>, screenshot_base64: Option<&str>, policy_context: &str) -> Result<VerdictResult> {
-        let api_key = self.config.azure_api_key.as_deref()
+    async fn call_azure(
+        &self,
+        intent: &str,
+        payload: Option<&str>,
+        screenshot_base64: Option<&str>,
+        policy_context: &str,
+    ) -> Result<VerdictResult> {
+        let api_key = self
+            .config
+            .azure_api_key
+            .as_deref()
             .ok_or_else(|| AppError::OpenAI("AZURE_API_KEY not configured".into()))?;
 
         let system_msg = ChatMessage {
             role: "system".to_string(),
-            content: vec![ChatContent::Text { text: system_prompt().to_string() }],
+            content: vec![ChatContent::Text {
+                text: system_prompt().to_string(),
+            }],
         };
 
         let user_msg = if let Some(screenshot) = screenshot_base64 {
             ChatMessage {
                 role: "user".to_string(),
                 content: vec![
-                    ChatContent::Text { text: self.user_prompt(intent, payload, policy_context) },
+                    ChatContent::Text {
+                        text: self.user_prompt(intent, payload, policy_context),
+                    },
                     ChatContent::ImageUrl {
                         image_url: ImageUrl {
                             url: format!("data:image/png;base64,{}", screenshot),
@@ -450,7 +533,9 @@ impl UnifiedProvider {
         } else {
             ChatMessage {
                 role: "user".to_string(),
-                content: vec![ChatContent::Text { text: self.user_prompt(intent, payload, policy_context) }],
+                content: vec![ChatContent::Text {
+                    text: self.user_prompt(intent, payload, policy_context),
+                }],
             }
         };
 
@@ -472,16 +557,25 @@ impl UnifiedProvider {
 
         info!("Azure request: deployment={}", self.config.azure_deployment);
 
-        let text = self.send_raw(&url, Some(("api-key", api_key)), &req_body, |resp: ChatResponse| {
-            resp.choices.first()
-                .and_then(|c| c.message.content.clone())
-                .unwrap_or_default()
-        }).await?;
+        let text = self
+            .send_raw(&url, Some(("api-key", api_key)), &req_body, |resp: ChatResponse| {
+                resp.choices
+                    .first()
+                    .and_then(|c| c.message.content.clone())
+                    .unwrap_or_default()
+            })
+            .await?;
 
         parse_verdict_json(&text, LLMProvider::Azure, self.model_for_provider())
     }
 
-    async fn call_bedrock(&self, intent: &str, payload: Option<&str>, screenshot_base64: Option<&str>, policy_context: &str) -> Result<VerdictResult> {
+    async fn call_bedrock(
+        &self,
+        intent: &str,
+        payload: Option<&str>,
+        screenshot_base64: Option<&str>,
+        policy_context: &str,
+    ) -> Result<VerdictResult> {
         let user_msg = if let Some(screenshot) = screenshot_base64 {
             BedrockMessage {
                 role: "user".to_string(),
@@ -525,7 +619,7 @@ impl UnifiedProvider {
         let client = self.bedrock_client.get_or_init(|| {
             let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime for Bedrock");
             rt.block_on(async {
-                let config = aws_config::from_env()
+                let config = aws_config::defaults(BehaviorVersion::latest())
                     .region(aws_types::region::Region::new(self.config.bedrock_region.clone()))
                     .load()
                     .await;
@@ -548,22 +642,27 @@ impl UnifiedProvider {
             })?;
 
         let body_bytes = response.body.as_ref();
-        let parsed: BedrockClaudeResponse = serde_json::from_slice(body_bytes)
-            .map_err(|e| {
-                error!("Failed to parse Bedrock response: {}", e);
-                AppError::OpenAI(format!("Failed to parse Bedrock response: {}", e))
-            })?;
+        let parsed: BedrockClaudeResponse = serde_json::from_slice(body_bytes).map_err(|e| {
+            error!("Failed to parse Bedrock response: {}", e);
+            AppError::OpenAI(format!("Failed to parse Bedrock response: {}", e))
+        })?;
 
-        let text = parsed.content
-            .first()
-            .and_then(|c| c.text.as_deref())
-            .unwrap_or("");
+        let text = parsed.content.first().and_then(|c| c.text.as_deref()).unwrap_or("");
 
         parse_verdict_json(text, LLMProvider::Bedrock, self.model_for_provider())
     }
 
-    async fn call_custom(&self, intent: &str, payload: Option<&str>, screenshot_base64: Option<&str>, policy_context: &str) -> Result<VerdictResult> {
-        let url = self.config.custom_provider_url.as_deref()
+    async fn call_custom(
+        &self,
+        intent: &str,
+        payload: Option<&str>,
+        screenshot_base64: Option<&str>,
+        policy_context: &str,
+    ) -> Result<VerdictResult> {
+        let url = self
+            .config
+            .custom_provider_url
+            .as_deref()
             .ok_or_else(|| AppError::OpenAI("CUSTOM_PROVIDER_URL not configured".into()))?;
 
         let req_body = CustomProviderRequest {
@@ -593,7 +692,10 @@ impl UnifiedProvider {
         }
         req = req.json(body);
 
-        let response = req.send().await.map_err(|e| AppError::OpenAI(format!("Request failed: {}", e)))?;
+        let response = req
+            .send()
+            .await
+            .map_err(|e| AppError::OpenAI(format!("Request failed: {}", e)))?;
         let status = response.status();
         let body_text = response.text().await.unwrap_or_default();
         if !status.is_success() {
@@ -601,13 +703,18 @@ impl UnifiedProvider {
         }
         let parsed: ChatResponse = serde_json::from_str(&body_text)
             .map_err(|e| AppError::OpenAI(format!("Failed to parse response: {}", e)))?;
-        Ok(parsed.choices.first()
+        Ok(parsed
+            .choices
+            .first()
             .and_then(|c| c.message.content.clone())
             .unwrap_or_default())
     }
 
     async fn send_retry<T: serde::de::DeserializeOwned>(
-        &self, url: &str, auth: Option<(&str, &str)>, body: &impl serde::Serialize,
+        &self,
+        url: &str,
+        auth: Option<(&str, &str)>,
+        body: &impl serde::Serialize,
         extract: fn(T) -> Result<String>,
     ) -> Result<String> {
         let mut last_err = None;
@@ -631,7 +738,9 @@ impl UnifiedProvider {
                         last_err = Some(AppError::OpenAI(format!("API returned {}: {}", status, body_text)));
                         continue;
                     }
-                    let parsed: T = resp.json().await
+                    let parsed: T = resp
+                        .json()
+                        .await
                         .map_err(|e| AppError::OpenAI(format!("Failed to parse response: {}", e)))?;
                     return extract(parsed);
                 }
@@ -645,7 +754,10 @@ impl UnifiedProvider {
     }
 
     async fn send_raw<T: serde::de::DeserializeOwned>(
-        &self, url: &str, auth: Option<(&str, &str)>, body: &impl serde::Serialize,
+        &self,
+        url: &str,
+        auth: Option<(&str, &str)>,
+        body: &impl serde::Serialize,
         extract: fn(T) -> String,
     ) -> Result<String> {
         let mut req = self.client.post(url).header("Content-Type", "application/json");
@@ -654,7 +766,10 @@ impl UnifiedProvider {
         }
         req = req.json(body);
 
-        let response = req.send().await.map_err(|e| AppError::OpenAI(format!("Request failed: {}", e)))?;
+        let response = req
+            .send()
+            .await
+            .map_err(|e| AppError::OpenAI(format!("Request failed: {}", e)))?;
         let status = response.status();
         let body_text = response.text().await.unwrap_or_default();
         if !status.is_success() {
@@ -666,7 +781,8 @@ impl UnifiedProvider {
     }
 
     async fn send_anthropic(&self, api_key: &str, body: &AnthropicRequest) -> Result<String> {
-        let response = self.client
+        let response = self
+            .client
             .post("https://api.anthropic.com/v1/messages")
             .header("x-api-key", api_key)
             .header("anthropic-version", "2023-06-01")
@@ -679,18 +795,24 @@ impl UnifiedProvider {
         let status = response.status();
         let body_text = response.text().await.unwrap_or_default();
         if !status.is_success() {
-            return Err(AppError::OpenAI(format!("Anthropic API error {}: {}", status, body_text)));
+            return Err(AppError::OpenAI(format!(
+                "Anthropic API error {}: {}",
+                status, body_text
+            )));
         }
         let parsed: AnthropicResponse = serde_json::from_str(&body_text)
             .map_err(|e| AppError::OpenAI(format!("Failed to parse Anthropic response: {}", e)))?;
-        Ok(parsed.content.first()
+        Ok(parsed
+            .content
+            .first()
             .and_then(|c| c.text.as_deref())
             .unwrap_or("")
             .to_string())
     }
 
     async fn send_raw_custom(&self, url: &str, body: serde_json::Value) -> Result<String> {
-        let response = self.client
+        let response = self
+            .client
             .post(url)
             .json(&body)
             .send()
@@ -700,7 +822,10 @@ impl UnifiedProvider {
         let status = response.status();
         let body_text = response.text().await.unwrap_or_default();
         if !status.is_success() {
-            return Err(AppError::OpenAI(format!("Custom provider error {}: {}", status, body_text)));
+            return Err(AppError::OpenAI(format!(
+                "Custom provider error {}: {}",
+                status, body_text
+            )));
         }
         Ok(body_text)
     }
@@ -724,13 +849,34 @@ impl LLMProviderTrait for UnifiedProvider {
         policy_context: &str,
     ) -> Result<VerdictResult> {
         match self.provider_type {
-            LLMProvider::OpenAI => self.call_openai(intent, payload, screenshot_base64, policy_context).await,
-            LLMProvider::Gemini => self.call_gemini(intent, payload, screenshot_base64, policy_context).await,
-            LLMProvider::Anthropic => self.call_anthropic(intent, payload, screenshot_base64, policy_context).await,
-            LLMProvider::Ollama => self.call_ollama(intent, payload, screenshot_base64, policy_context).await,
-            LLMProvider::Azure => self.call_azure(intent, payload, screenshot_base64, policy_context).await,
-            LLMProvider::Bedrock => self.call_bedrock(intent, payload, screenshot_base64, policy_context).await,
-            LLMProvider::Custom => self.call_custom(intent, payload, screenshot_base64, policy_context).await,
+            LLMProvider::OpenAI => {
+                self.call_openai(intent, payload, screenshot_base64, policy_context)
+                    .await
+            }
+            LLMProvider::Gemini => {
+                self.call_gemini(intent, payload, screenshot_base64, policy_context)
+                    .await
+            }
+            LLMProvider::Anthropic => {
+                self.call_anthropic(intent, payload, screenshot_base64, policy_context)
+                    .await
+            }
+            LLMProvider::Ollama => {
+                self.call_ollama(intent, payload, screenshot_base64, policy_context)
+                    .await
+            }
+            LLMProvider::Azure => {
+                self.call_azure(intent, payload, screenshot_base64, policy_context)
+                    .await
+            }
+            LLMProvider::Bedrock => {
+                self.call_bedrock(intent, payload, screenshot_base64, policy_context)
+                    .await
+            }
+            LLMProvider::Custom => {
+                self.call_custom(intent, payload, screenshot_base64, policy_context)
+                    .await
+            }
         }
     }
 }

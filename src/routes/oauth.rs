@@ -1,5 +1,5 @@
 use axum::extract::{Query, State};
-use axum::http::header::{SET_COOKIE, HeaderValue};
+use axum::http::header::{HeaderValue, SET_COOKIE};
 use axum::response::{IntoResponse, Redirect};
 use axum::Json;
 use serde::Deserialize;
@@ -31,15 +31,17 @@ pub struct CallbackParams {
     state: String,
 }
 
-pub async fn oauth_login(
-    State(state): State<OAuthState>,
-) -> impl IntoResponse {
+pub async fn oauth_login(State(state): State<OAuthState>) -> impl IntoResponse {
     let provider = match &state.provider {
         Some(p) => p,
         None => {
-            return (axum::http::StatusCode::BAD_REQUEST, Json(serde_json::json!({
-                "error": "OAuth not configured"
-            }))).into_response()
+            return (
+                axum::http::StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": "OAuth not configured"
+                })),
+            )
+                .into_response()
         }
     };
 
@@ -60,9 +62,13 @@ pub async fn oauth_callback(
     let provider = match &state.provider {
         Some(p) => p,
         None => {
-            return (axum::http::StatusCode::BAD_REQUEST, Json(serde_json::json!({
-                "error": "OAuth not configured"
-            }))).into_response()
+            return (
+                axum::http::StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": "OAuth not configured"
+                })),
+            )
+                .into_response()
         }
     };
 
@@ -71,9 +77,13 @@ pub async fn oauth_callback(
         let states = state.pending_states.read().unwrap();
         if !states.contains_key(&params.state) {
             warn!("Invalid OAuth state parameter");
-            return (axum::http::StatusCode::BAD_REQUEST, Json(serde_json::json!({
-                "error": "Invalid state parameter"
-            }))).into_response();
+            return (
+                axum::http::StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": "Invalid state parameter"
+                })),
+            )
+                .into_response();
         }
     }
 
@@ -82,9 +92,13 @@ pub async fn oauth_callback(
         Ok(token) => token,
         Err(e) => {
             warn!("OAuth token exchange failed: {}", e);
-            return (axum::http::StatusCode::BAD_REQUEST, Json(serde_json::json!({
-                "error": "Token exchange failed"
-            }))).into_response();
+            return (
+                axum::http::StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": "Token exchange failed"
+                })),
+            )
+                .into_response();
         }
     };
 
@@ -93,9 +107,13 @@ pub async fn oauth_callback(
         Ok(u) => u,
         Err(e) => {
             warn!("OAuth user info failed: {}", e);
-            return (axum::http::StatusCode::BAD_REQUEST, Json(serde_json::json!({
-                "error": "Failed to get user info"
-            }))).into_response();
+            return (
+                axum::http::StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": "Failed to get user info"
+                })),
+            )
+                .into_response();
         }
     };
 
@@ -121,9 +139,7 @@ pub async fn oauth_callback(
     response
 }
 
-pub async fn oauth_status(
-    State(state): State<OAuthState>,
-) -> Json<serde_json::Value> {
+pub async fn oauth_status(State(state): State<OAuthState>) -> Json<serde_json::Value> {
     let configured = state.provider.is_some();
     let provider_name = state.provider.as_ref().map(|p| p.config.provider.clone());
 

@@ -1,9 +1,8 @@
 use oauth2::basic::BasicClient;
-use oauth2::{
-    AuthUrl, ClientId, ClientSecret, CsrfToken, RedirectUrl,
-    Scope, TokenUrl, AuthorizationCode, TokenResponse,
-};
 use oauth2::reqwest::http_client;
+use oauth2::{
+    AuthUrl, AuthorizationCode, ClientId, ClientSecret, CsrfToken, RedirectUrl, Scope, TokenResponse, TokenUrl,
+};
 use serde::{Deserialize, Serialize};
 use url::Url;
 
@@ -153,10 +152,7 @@ impl OAuthProvider {
             .await
             .map_err(|e| format!("Google userinfo failed: {}", e))?;
 
-        let user: GoogleUser = resp
-            .json()
-            .await
-            .map_err(|e| format!("Parse failed: {}", e))?;
+        let user: GoogleUser = resp.json().await.map_err(|e| format!("Parse failed: {}", e))?;
 
         self.validate_email(&user.email, user.hd.as_deref())?;
 
@@ -179,10 +175,7 @@ impl OAuthProvider {
             .await
             .map_err(|e| format!("GitHub userinfo failed: {}", e))?;
 
-        let user: GitHubUser = resp
-            .json()
-            .await
-            .map_err(|e| format!("Parse failed: {}", e))?;
+        let user: GitHubUser = resp.json().await.map_err(|e| format!("Parse failed: {}", e))?;
 
         let email = if let Some(ref e) = user.email {
             e.clone()

@@ -30,9 +30,7 @@ impl AttachmentService {
         let storage_name = format!("{}_{}", &id[..8], safe_name);
         let storage_path = self.storage_dir.join(&storage_name);
 
-        fs::write(&storage_path, data)
-            .await
-            .map_err(|_| AppError::Internal)?;
+        fs::write(&storage_path, data).await.map_err(|_| AppError::Internal)?;
 
         let file_size = data.len() as i64;
         let clean_filename = sanitize_filename(filename);
@@ -62,11 +60,7 @@ impl AttachmentService {
         })
     }
 
-    pub async fn list_for_action(
-        &self,
-        pool: &DbPool,
-        action_id: &str,
-    ) -> Result<Vec<Attachment>> {
+    pub async fn list_for_action(&self, pool: &DbPool, action_id: &str) -> Result<Vec<Attachment>> {
         let attachments = sqlx::query_as::<_, Attachment>(
             "SELECT id, action_id, filename, content_type, file_size, storage_path, created_at FROM attachments WHERE action_id = ? ORDER BY created_at ASC",
         )
@@ -78,11 +72,7 @@ impl AttachmentService {
         Ok(attachments)
     }
 
-    pub async fn get_by_id(
-        &self,
-        pool: &DbPool,
-        id: &str,
-    ) -> Result<Attachment> {
+    pub async fn get_by_id(&self, pool: &DbPool, id: &str) -> Result<Attachment> {
         sqlx::query_as::<_, Attachment>(
             "SELECT id, action_id, filename, content_type, file_size, storage_path, created_at FROM attachments WHERE id = ?",
         )
@@ -100,7 +90,13 @@ impl AttachmentService {
 
 fn sanitize_filename(name: &str) -> String {
     name.chars()
-        .map(|c| if c.is_alphanumeric() || c == '.' || c == '-' || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '.' || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect::<String>()
         .trim_matches('_')
         .to_string()

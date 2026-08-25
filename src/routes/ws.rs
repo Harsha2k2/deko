@@ -20,23 +20,18 @@ pub async fn action_ws_handler(
     ws.on_upgrade(move |socket| handle_socket(socket, pool, agent, action_id))
 }
 
-async fn handle_socket(
-    mut socket: WebSocket,
-    pool: DbPool,
-    agent: Agent,
-    action_id: String,
-) {
-    let valid = sqlx::query_as::<_, (String,)>(
-        "SELECT agent_id FROM actions WHERE id = ?",
-    )
-    .bind(&action_id)
-    .fetch_optional(&pool)
-    .await;
+async fn handle_socket(mut socket: WebSocket, pool: DbPool, agent: Agent, action_id: String) {
+    let valid = sqlx::query_as::<_, (String,)>("SELECT agent_id FROM actions WHERE id = ?")
+        .bind(&action_id)
+        .fetch_optional(&pool)
+        .await;
 
     let action_owner = match valid {
         Ok(Some((aid,))) => aid,
         _ => {
-            let _ = socket.send(json_msg(serde_json::json!({"error": "Action not found"}))).await;
+            let _ = socket
+                .send(json_msg(serde_json::json!({"error": "Action not found"})))
+                .await;
             return;
         }
     };
@@ -74,14 +69,18 @@ async fn handle_socket(
                 sleep(Duration::from_millis(500)).await;
             }
             Err(_) => {
-                let _ = socket.send(json_msg(serde_json::json!({"error": "Database error"}))).await;
+                let _ = socket
+                    .send(json_msg(serde_json::json!({"error": "Database error"})))
+                    .await;
                 return;
             }
         }
     }
 
-    let _ = socket.send(json_msg(serde_json::json!({
-        "status": "timeout",
-        "message": "Verdict not ready within 60 seconds"
-    }))).await;
+    let _ = socket
+        .send(json_msg(serde_json::json!({
+            "status": "timeout",
+            "message": "Verdict not ready within 60 seconds"
+        })))
+        .await;
 }

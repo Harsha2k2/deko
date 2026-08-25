@@ -1,18 +1,18 @@
-use std::sync::Arc;
 use crate::db::DbPool;
-use std::time::Instant;
-use std::sync::Mutex;
 use chrono::{Datelike, Timelike};
+use std::sync::Arc;
+use std::sync::Mutex;
+use std::time::Instant;
 use tracing::{info, warn};
 
 use crate::config::{Config, LLMProvider};
 use crate::error::{AppError, Result};
 use crate::models::{ActionStatus, Policy};
 use crate::services::llm::{LLMProviderTrait, ProviderMetrics, VerdictResult};
+use crate::services::metrics::MetricsCollector;
+use crate::services::prompt_injection::{InjectionSeverity, PromptInjectionDetector};
 use crate::services::providers::UnifiedProvider;
 use crate::services::webhook::WebhookService;
-use crate::services::metrics::MetricsCollector;
-use crate::services::prompt_injection::{PromptInjectionDetector, InjectionSeverity};
 use crate::services::ws_broadcaster::WsBroadcaster;
 
 pub struct VerdictService {
@@ -25,13 +25,39 @@ pub struct VerdictService {
 }
 
 impl VerdictService {
-    pub fn new(pool: DbPool, config: &Config, metrics: Arc<MetricsCollector>, ws_broadcaster: Arc<WsBroadcaster>) -> Self {
+    pub fn new(
+        pool: DbPool,
+        config: &Config,
+        metrics: Arc<MetricsCollector>,
+        ws_broadcaster: Arc<WsBroadcaster>,
+    ) -> Self {
         let webhook = WebhookService::new(config.webhook_url.clone());
         let config = Arc::new(config.clone());
         let provider = Box::new(UnifiedProvider::new(Arc::clone(&config), config.default_provider));
 
         Self {
             pool: pool.clone(),
+            provider,
+            provider_metrics: Mutex::new(ProviderMetrics::new()),
+            webhook,
+            metrics,
+            ws_broadcaster,
+        }
+    }
+
+    /// builds a verdict service with an explicit provider (used by tests and
+    /// future fallback chains to control which provider handles analysis).
+    #[allow(dead_code)]
+    pub fn with_provider(
+        pool: DbPool,
+        config: &Config,
+        metrics: Arc<MetricsCollector>,
+        ws_broadcaster: Arc<WsBroadcaster>,
+        provider: Box<dyn LLMProviderTrait>,
+    ) -> Self {
+        let webhook = WebhookService::new(config.webhook_url.clone());
+        Self {
+            pool,
             provider,
             provider_metrics: Mutex::new(ProviderMetrics::new()),
             webhook,
@@ -53,7 +79,10 @@ impl VerdictService {
         let agent_id = action.agent_id.clone();
 
         if action.status != ActionStatus::Pending {
-            info!("Action {} already processed (status: {:?}), skipping", action_id, action.status);
+            info!(
+                "Action {} already processed (status: {:?}), skipping",
+                action_id, action.status
+            );
             return Ok(());
         }
 
@@ -64,15 +93,22 @@ impl VerdictService {
             .await
             .map_err(AppError::Database)?;
 
-        self.audit(action_id, "processing_started", &serde_json::json!({
-            "intent": action.intent,
-        }))
+        self.audit(
+            action_id,
+            "processing_started",
+            &serde_json::json!({
+                "intent": action.intent,
+            }),
+        )
         .await?;
 
         let policy_result = self.evaluate_policies(&action).await?;
 
         if policy_result.immediate_deny {
-            let reason = policy_result.reason.clone().unwrap_or_else(|| "Blocked by policy rule".to_string());
+            let reason = policy_result
+                .reason
+                .clone()
+                .unwrap_or_else(|| "Blocked by policy rule".to_string());
             self.save_verdict(
                 action_id,
                 &agent_id,
@@ -84,11 +120,17 @@ impl VerdictService {
                     provider: LLMProvider::Gemini,
                     model: "policy_engine".to_string(),
                     confidence: 1.0,
-                    reasoning_chain: Some(vec![
-                        "Policy evaluation completed".to_string(),
-                        format!("Matched policy: {}", policy_result.matched_policy_id.as_deref().unwrap_or("unknown")),
-                        format!("Violation: {}", reason),
-                    ].join(" → ")),
+                    reasoning_chain: Some(
+                        vec![
+                            "Policy evaluation completed".to_string(),
+                            format!(
+                                "Matched policy: {}",
+                                policy_result.matched_policy_id.as_deref().unwrap_or("unknown")
+                            ),
+                            format!("Violation: {}", reason),
+                        ]
+                        .join(" → "),
+                    ),
                 },
                 policy_result.matched_policy_id,
             )
@@ -99,16 +141,25 @@ impl VerdictService {
         let injection_result = PromptInjectionDetector::analyze(&action.intent, action.payload.as_deref());
 
         if injection_result.detected {
-            self.audit(action_id, "prompt_injection_detected", &serde_json::json!({
-                "patterns": injection_result.patterns,
-                "risk_level": injection_result.risk_level,
-            }))
+            self.audit(
+                action_id,
+                "prompt_injection_detected",
+                &serde_json::json!({
+                    "patterns": injection_result.patterns,
+                    "risk_level": injection_result.risk_level,
+                }),
+            )
             .await?;
 
-            let has_critical = injection_result.patterns.iter().any(|p| matches!(p.severity, InjectionSeverity::Critical));
+            let has_critical = injection_result
+                .patterns
+                .iter()
+                .any(|p| matches!(p.severity, InjectionSeverity::Critical));
 
             if has_critical {
-                let patterns: Vec<String> = injection_result.patterns.iter()
+                let patterns: Vec<String> = injection_result
+                    .patterns
+                    .iter()
                     .map(|p| format!("{}: {}", p.name, p.match_text))
                     .collect();
                 self.save_verdict(
@@ -122,12 +173,15 @@ impl VerdictService {
                         provider: LLMProvider::Gemini,
                         model: "prompt_injection_detector".to_string(),
                         confidence: 1.0,
-                        reasoning_chain: Some(vec![
-                            "Prompt injection scan initiated".to_string(),
-                            format!("Detected {} suspicious pattern(s)", injection_result.patterns.len()),
-                            format!("Critical pattern(s) found: {}", patterns.join(", ")),
-                            "Immediate deny triggered".to_string(),
-                        ].join(" → ")),
+                        reasoning_chain: Some(
+                            vec![
+                                "Prompt injection scan initiated".to_string(),
+                                format!("Detected {} suspicious pattern(s)", injection_result.patterns.len()),
+                                format!("Critical pattern(s) found: {}", patterns.join(", ")),
+                                "Immediate deny triggered".to_string(),
+                            ]
+                            .join(" → "),
+                        ),
                     },
                     None,
                 )
@@ -141,18 +195,10 @@ impl VerdictService {
             None => policy_result.context,
         };
 
-        let verdict_result = self.try_llm_analysis(
-            &action,
-            &llm_context,
-        ).await;
+        let verdict_result = self.try_llm_analysis(&action, &llm_context).await;
 
-        self.save_verdict(
-            action_id,
-            &agent_id,
-            verdict_result,
-            policy_result.matched_policy_id,
-        )
-        .await?;
+        self.save_verdict(action_id, &agent_id, verdict_result, policy_result.matched_policy_id)
+            .await?;
 
         Ok(())
     }
@@ -182,37 +228,34 @@ impl VerdictService {
         });
     }
 
-    async fn try_llm_analysis(
-        &self,
-        action: &crate::models::Action,
-        policy_context: &str,
-    ) -> VerdictResult {
+    async fn try_llm_analysis(&self, action: &crate::models::Action, policy_context: &str) -> VerdictResult {
         let start = Instant::now();
         self.metrics.inc_llm_call();
 
         let provider_name = self.provider.name();
         let model_name = self.provider.model_name();
 
-        sqlx::query(
-            "INSERT INTO audit_log (id, action_id, event_type, details) VALUES (?, ?, ?, ?)",
-        )
-        .bind(uuid::Uuid::new_v4().to_string())
-        .bind(&action.id)
-        .bind("llm_call_started")
-        .bind(serde_json::json!({
-            "provider": provider_name,
-            "model": model_name,
-        }))
-        .execute(&self.pool)
-        .await
-        .ok();
+        sqlx::query("INSERT INTO audit_log (id, action_id, event_type, details) VALUES (?, ?, ?, ?)")
+            .bind(uuid::Uuid::new_v4().to_string())
+            .bind(&action.id)
+            .bind("llm_call_started")
+            .bind(serde_json::json!({
+                "provider": provider_name,
+                "model": model_name,
+            }))
+            .execute(&self.pool)
+            .await
+            .ok();
 
-        let result = self.provider.analyze_action(
-            &action.intent,
-            action.payload.as_deref(),
-            action.screenshot_base64.as_deref(),
-            policy_context,
-        ).await;
+        let result = self
+            .provider
+            .analyze_action(
+                &action.intent,
+                action.payload.as_deref(),
+                action.screenshot_base64.as_deref(),
+                policy_context,
+            )
+            .await;
 
         let elapsed = start.elapsed().as_millis() as u64;
         self.metrics.record_llm_latency(elapsed);
@@ -220,7 +263,10 @@ impl VerdictService {
         match result {
             Ok(mut verdict) => {
                 let tokens_used = estimate_token_count(&action.intent, action.payload.as_deref(), &verdict.reason);
-                self.provider_metrics.lock().unwrap().record_request(elapsed as f64, tokens_used);
+                self.provider_metrics
+                    .lock()
+                    .unwrap()
+                    .record_request(elapsed as f64, tokens_used);
                 verdict.confidence = verdict.confidence.max(0.0).min(1.0);
                 verdict
             }
@@ -269,22 +315,20 @@ impl VerdictService {
                         context_parts.push(format!("{}: {}", policy.name, result.message));
 
                         // Record hit statistic
-                        sqlx::query(
-                            "INSERT INTO audit_log (id, action_id, event_type, details) VALUES (?, ?, ?, ?)",
-                        )
-                        .bind(uuid::Uuid::new_v4().to_string())
-                        .bind(&action.id)
-                        .bind("policy_matched")
-                        .bind(serde_json::json!({
-                            "policy_id": policy.id,
-                            "policy_name": policy.name,
-                            "rule_type": rule.get("type"),
-                            "message": result.message,
-                            "dry_run": is_dry_run,
-                        }))
-                        .execute(&self.pool)
-                        .await
-                        .ok();
+                        sqlx::query("INSERT INTO audit_log (id, action_id, event_type, details) VALUES (?, ?, ?, ?)")
+                            .bind(uuid::Uuid::new_v4().to_string())
+                            .bind(&action.id)
+                            .bind("policy_matched")
+                            .bind(serde_json::json!({
+                                "policy_id": policy.id,
+                                "policy_name": policy.name,
+                                "rule_type": rule.get("type"),
+                                "message": result.message,
+                                "dry_run": is_dry_run,
+                            }))
+                            .execute(&self.pool)
+                            .await
+                            .ok();
 
                         if result.immediate_deny && !is_dry_run {
                             return Ok(PolicyEvaluation {
@@ -301,7 +345,11 @@ impl VerdictService {
         }
 
         if had_match && is_dry_run {
-            info!("[DRY RUN] Policy would have blocked action {}: {}", action.id, context_parts.join("; "));
+            info!(
+                "[DRY RUN] Policy would have blocked action {}: {}",
+                action.id,
+                context_parts.join("; ")
+            );
         }
 
         // Check rate limit policies asynchronously
@@ -335,16 +383,19 @@ impl VerdictService {
                     if rule.get("type").and_then(|t| t.as_str()) == Some("concurrency_limit") {
                         let max_simultaneous = rule.get("max_simultaneous").and_then(|v| v.as_i64()).unwrap_or(1);
                         if let Ok((count,)) = sqlx::query_as::<_, (i64,)>(
-                            "SELECT COUNT(*) FROM actions WHERE agent_id = ? AND status = 'processing'"
+                            "SELECT COUNT(*) FROM actions WHERE agent_id = ? AND status = 'processing'",
                         )
-                            .bind(&action.agent_id)
-                            .fetch_one(&self.pool)
-                            .await
+                        .bind(&action.agent_id)
+                        .fetch_one(&self.pool)
+                        .await
                         {
                             if count >= max_simultaneous && !is_dry_run {
                                 return Ok(PolicyEvaluation {
                                     immediate_deny: true,
-                                    reason: Some(format!("Concurrency limit: {} simultaneous actions (max {})", count, max_simultaneous)),
+                                    reason: Some(format!(
+                                        "Concurrency limit: {} simultaneous actions (max {})",
+                                        count, max_simultaneous
+                                    )),
                                     risk_level: Some(crate::models::RiskLevel::Medium),
                                     matched_policy_id: Some(policy.id.clone()),
                                     context: context_parts.join("; "),
@@ -441,7 +492,13 @@ impl VerdictService {
         }
     }
 
-    fn evaluate_composite_rule(&self, rule: &serde_json::Value, action: &crate::models::Action, operator: &str, _priority: i32) -> Option<RuleResult> {
+    fn evaluate_composite_rule(
+        &self,
+        rule: &serde_json::Value,
+        action: &crate::models::Action,
+        operator: &str,
+        _priority: i32,
+    ) -> Option<RuleResult> {
         let rules = rule.get("rules")?.as_array()?;
         let is_and = operator == "and";
 
@@ -461,8 +518,15 @@ impl VerdictService {
         if is_and && !results.is_empty() {
             Some(RuleResult {
                 immediate_deny: results.iter().any(|r| r.immediate_deny),
-                message: results.iter().map(|r| r.message.as_str()).collect::<Vec<_>>().join("; "),
-                risk_level: if results.iter().any(|r| r.risk_level == crate::models::RiskLevel::Critical) {
+                message: results
+                    .iter()
+                    .map(|r| r.message.as_str())
+                    .collect::<Vec<_>>()
+                    .join("; "),
+                risk_level: if results
+                    .iter()
+                    .any(|r| r.risk_level == crate::models::RiskLevel::Critical)
+                {
                     crate::models::RiskLevel::Critical
                 } else if results.iter().any(|r| r.risk_level == crate::models::RiskLevel::High) {
                     crate::models::RiskLevel::High
@@ -477,7 +541,13 @@ impl VerdictService {
         }
     }
 
-    fn evaluate_simple_rule(&self, rule: &serde_json::Value, action: &crate::models::Action, rule_type: &str, _priority: i32) -> Option<RuleResult> {
+    fn evaluate_simple_rule(
+        &self,
+        rule: &serde_json::Value,
+        action: &crate::models::Action,
+        rule_type: &str,
+        _priority: i32,
+    ) -> Option<RuleResult> {
         match rule_type {
             "deny_keyword" => {
                 let keywords = rule.get("keywords")?.as_array()?;
@@ -561,9 +631,7 @@ impl VerdictService {
             "url_allowlist" => {
                 let allowed = rule.get("patterns")?.as_array()?;
                 if let Some(url) = &action.target_url {
-                    let is_allowed = allowed.iter().any(|p| {
-                        p.as_str().is_some_and(|pat| url.contains(pat))
-                    });
+                    let is_allowed = allowed.iter().any(|p| p.as_str().is_some_and(|pat| url.contains(pat)));
                     if !is_allowed {
                         return Some(RuleResult {
                             immediate_deny: true,
@@ -594,8 +662,11 @@ impl VerdictService {
                 let start = rule.get("start_hour_utc").and_then(|v| v.as_i64()).unwrap_or(0);
                 let end = rule.get("end_hour_utc").and_then(|v| v.as_i64()).unwrap_or(24);
                 let hour = now.hour() as i64;
-                let allowed_days = rule.get("days").and_then(|v| v.as_array())
-                    .map(|days| days.iter().filter_map(|d| d.as_i64().map(|d| d as u32)).collect::<Vec<_>>());
+                let allowed_days = rule.get("days").and_then(|v| v.as_array()).map(|days| {
+                    days.iter()
+                        .filter_map(|d| d.as_i64().map(|d| d as u32))
+                        .collect::<Vec<_>>()
+                });
                 let day_ok = match allowed_days {
                     Some(ref days) => days.contains(&now.weekday().num_days_from_monday()),
                     None => true,
@@ -603,7 +674,10 @@ impl VerdictService {
                 if !day_ok || hour < start || hour >= end {
                     return Some(RuleResult {
                         immediate_deny: true,
-                        message: format!("Action outside allowed time window (UTC {}-{}, allowed days: {:?})", start, end, allowed_days),
+                        message: format!(
+                            "Action outside allowed time window (UTC {}-{}, allowed days: {:?})",
+                            start, end, allowed_days
+                        ),
                         risk_level: crate::models::RiskLevel::Medium,
                     });
                 }
@@ -614,9 +688,7 @@ impl VerdictService {
                         let source_ip = parsed.get("source_ip").and_then(|v| v.as_str());
                         let allowed = rule.get("patterns")?.as_array()?;
                         if let Some(ip) = source_ip {
-                            let is_allowed = allowed.iter().any(|p| {
-                                p.as_str().is_some_and(|pat| ip.contains(pat))
-                            });
+                            let is_allowed = allowed.iter().any(|p| p.as_str().is_some_and(|pat| ip.contains(pat)));
                             if !is_allowed {
                                 return Some(RuleResult {
                                     immediate_deny: true,
@@ -637,7 +709,10 @@ impl VerdictService {
                         let country = parsed.get("country").and_then(|v| v.as_str());
                         let blocked = rule.get("blocked_countries")?.as_array()?;
                         if let Some(c) = country {
-                            if blocked.iter().any(|b| b.as_str().map_or(false, |b| b.eq_ignore_ascii_case(c))) {
+                            if blocked
+                                .iter()
+                                .any(|b| b.as_str().map_or(false, |b| b.eq_ignore_ascii_case(c)))
+                            {
                                 return Some(RuleResult {
                                     immediate_deny: true,
                                     message: format!("Country {} is blocked by geofence policy", c),
@@ -723,17 +798,23 @@ impl VerdictService {
 
         tx.commit().await.map_err(AppError::Database)?;
 
-        if matches!(verdict.decision, crate::models::VerdictDecision::Denied | crate::models::VerdictDecision::Escalate) {
-            let agent_webhook: Option<(Option<String>,)> = sqlx::query_as(
-                "SELECT webhook_url FROM agents WHERE id = ?"
-            )
-            .bind(agent_id)
-            .fetch_optional(&self.pool)
-            .await
-            .map_err(AppError::Database)?;
+        if matches!(
+            verdict.decision,
+            crate::models::VerdictDecision::Denied | crate::models::VerdictDecision::Escalate
+        ) {
+            let agent_webhook: Option<(Option<String>,)> =
+                sqlx::query_as("SELECT webhook_url FROM agents WHERE id = ?")
+                    .bind(agent_id)
+                    .fetch_optional(&self.pool)
+                    .await
+                    .map_err(AppError::Database)?;
 
             let webhook_url = agent_webhook.and_then(|r| r.0);
-            if let Err(e) = self.webhook.send_verdict(action_id, &verdict, webhook_url.as_deref()).await {
+            if let Err(e) = self
+                .webhook
+                .send_verdict(action_id, &verdict, webhook_url.as_deref())
+                .await
+            {
                 warn!("Failed to send webhook for action {}: {}", action_id, e);
             }
         }
@@ -762,16 +843,14 @@ impl VerdictService {
     }
 
     async fn audit(&self, action_id: &str, event_type: &str, details: &serde_json::Value) -> Result<()> {
-        sqlx::query(
-            "INSERT INTO audit_log (id, action_id, event_type, details) VALUES (?, ?, ?, ?)",
-        )
-        .bind(uuid::Uuid::new_v4().to_string())
-        .bind(action_id)
-        .bind(event_type)
-        .bind(details)
-        .execute(&self.pool)
-        .await
-        .map_err(AppError::Database)?;
+        sqlx::query("INSERT INTO audit_log (id, action_id, event_type, details) VALUES (?, ?, ?, ?)")
+            .bind(uuid::Uuid::new_v4().to_string())
+            .bind(action_id)
+            .bind(event_type)
+            .bind(details)
+            .execute(&self.pool)
+            .await
+            .map_err(AppError::Database)?;
         Ok(())
     }
 
@@ -783,16 +862,14 @@ impl VerdictService {
         event_type: &str,
         details: &serde_json::Value,
     ) -> Result<()> {
-        sqlx::query(
-            "INSERT INTO audit_log (id, action_id, event_type, details) VALUES (?, ?, ?, ?)",
-        )
-        .bind(uuid::Uuid::new_v4().to_string())
-        .bind(action_id)
-        .bind(event_type)
-        .bind(details)
-        .execute(&mut **tx)
-        .await
-        .map_err(AppError::Database)?;
+        sqlx::query("INSERT INTO audit_log (id, action_id, event_type, details) VALUES (?, ?, ?, ?)")
+            .bind(uuid::Uuid::new_v4().to_string())
+            .bind(action_id)
+            .bind(event_type)
+            .bind(details)
+            .execute(&mut **tx)
+            .await
+            .map_err(AppError::Database)?;
         Ok(())
     }
 
@@ -804,16 +881,14 @@ impl VerdictService {
         event_type: &str,
         details: &serde_json::Value,
     ) -> Result<()> {
-        sqlx::query(
-            "INSERT INTO audit_log (id, action_id, event_type, details) VALUES ($1, $2, $3, $4)",
-        )
-        .bind(uuid::Uuid::new_v4().to_string())
-        .bind(action_id)
-        .bind(event_type)
-        .bind(details)
-        .execute(&mut **tx)
-        .await
-        .map_err(AppError::Database)?;
+        sqlx::query("INSERT INTO audit_log (id, action_id, event_type, details) VALUES ($1, $2, $3, $4)")
+            .bind(uuid::Uuid::new_v4().to_string())
+            .bind(action_id)
+            .bind(event_type)
+            .bind(details)
+            .execute(&mut **tx)
+            .await
+            .map_err(AppError::Database)?;
         Ok(())
     }
 }

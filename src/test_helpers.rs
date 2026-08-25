@@ -1,6 +1,6 @@
 use async_trait::async_trait;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
 use crate::config::LLMProvider;
 use crate::error::Result;
@@ -127,23 +127,17 @@ impl TestFixtures {
             &std::env::var("DEKO_API_KEY_SECRET").unwrap_or_else(|_| "test-secret-key-12345678".to_string()),
         );
 
-        sqlx::query(
-            "INSERT INTO agents (id, name, api_key_hash, active) VALUES (?, ?, ?, 1)",
-        )
-        .bind(&agent_id)
-        .bind(name)
-        .bind(&api_key_hash)
-        .execute(pool)
-        .await?;
+        sqlx::query("INSERT INTO agents (id, name, api_key_hash, active) VALUES (?, ?, ?, 1)")
+            .bind(&agent_id)
+            .bind(name)
+            .bind(&api_key_hash)
+            .execute(pool)
+            .await?;
 
         Ok((agent_id, api_key))
     }
 
-    pub async fn create_action(
-        pool: &crate::db::DbPool,
-        agent_id: &str,
-        intent: &str,
-    ) -> sqlx::Result<String> {
+    pub async fn create_action(pool: &crate::db::DbPool, agent_id: &str, intent: &str) -> sqlx::Result<String> {
         let action_id = uuid::Uuid::new_v4().to_string();
 
         sqlx::query(
@@ -192,22 +186,16 @@ impl TestFixtures {
         Ok(action_id)
     }
 
-    pub async fn create_policy(
-        pool: &crate::db::DbPool,
-        name: &str,
-        rules_json: &str,
-    ) -> sqlx::Result<String> {
+    pub async fn create_policy(pool: &crate::db::DbPool, name: &str, rules_json: &str) -> sqlx::Result<String> {
         let policy_id = uuid::Uuid::new_v4().to_string();
 
-        sqlx::query(
-            "INSERT INTO policies (id, name, description, rules, active) VALUES (?, ?, ?, ?, 1)",
-        )
-        .bind(&policy_id)
-        .bind(name)
-        .bind("")
-        .bind(rules_json)
-        .execute(pool)
-        .await?;
+        sqlx::query("INSERT INTO policies (id, name, description, rules, active) VALUES (?, ?, ?, ?, 1)")
+            .bind(&policy_id)
+            .bind(name)
+            .bind("")
+            .bind(rules_json)
+            .execute(pool)
+            .await?;
 
         Ok(policy_id)
     }
@@ -226,11 +214,7 @@ impl TestFixtures {
         Self::create_policy(pool, name, &rules.to_string()).await
     }
 
-    pub async fn create_max_amount_policy(
-        pool: &crate::db::DbPool,
-        name: &str,
-        max: f64,
-    ) -> sqlx::Result<String> {
+    pub async fn create_max_amount_policy(pool: &crate::db::DbPool, name: &str, max: f64) -> sqlx::Result<String> {
         let rules = serde_json::json!([{
             "type": "max_amount",
             "max": max,
