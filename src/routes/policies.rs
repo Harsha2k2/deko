@@ -29,7 +29,7 @@ pub struct UpdatePolicyRequest {
 )]
 pub async fn create_policy(
     State(pool): State<crate::db::DbPool>,
-    axum::Extension(_admin): axum::Extension<bool>,
+    axum::Extension(_admin): axum::Extension<String>,
     Json(req): Json<CreatePolicyRequest>,
 ) -> Result<Json<serde_json::Value>> {
     if req.name.trim().is_empty() {
@@ -69,7 +69,7 @@ pub async fn create_policy(
 #[allow(dead_code)]
 pub async fn list_policies(
     State(pool): State<crate::db::DbPool>,
-    axum::Extension(_admin): axum::Extension<bool>,
+    axum::Extension(_admin): axum::Extension<String>,
 ) -> Result<Json<serde_json::Value>> {
     let policies: Vec<(String, String, String, String, bool, String, String)> = sqlx::query_as(
         "SELECT id, name, description, rules, active, created_at, updated_at FROM policies ORDER BY created_at DESC",
@@ -104,7 +104,7 @@ pub async fn list_policies(
 )]
 pub async fn update_policy(
     State(pool): State<crate::db::DbPool>,
-    axum::Extension(_admin): axum::Extension<bool>,
+    axum::Extension(_admin): axum::Extension<String>,
     Path(id): Path<String>,
     Json(req): Json<UpdatePolicyRequest>,
 ) -> Result<Json<serde_json::Value>> {
@@ -167,7 +167,7 @@ pub async fn update_policy(
 )]
 pub async fn delete_policy(
     State(pool): State<crate::db::DbPool>,
-    axum::Extension(_admin): axum::Extension<bool>,
+    axum::Extension(_admin): axum::Extension<String>,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>> {
     let result = sqlx::query("UPDATE policies SET active = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?")

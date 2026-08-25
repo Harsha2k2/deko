@@ -13,14 +13,20 @@ use crate::services::oauth::{OAuthConfig, OAuthProvider};
 pub struct OAuthState {
     pub provider: Option<OAuthProvider>,
     pub pending_states: Arc<RwLock<std::collections::HashMap<String, String>>>,
+    pub pool: Option<crate::db::DbPool>,
 }
 
 impl OAuthState {
     pub fn new(config: OAuthConfig) -> Self {
+        Self::with_pool(config, None)
+    }
+
+    pub fn with_pool(config: OAuthConfig, pool: Option<crate::db::DbPool>) -> Self {
         let provider = OAuthProvider::new(config);
         Self {
             provider,
             pending_states: Arc::new(RwLock::new(std::collections::HashMap::new())),
+            pool,
         }
     }
 }
@@ -125,11 +131,32 @@ pub async fn oauth_callback(
 
     info!("OAuth login successful: {} ({})", user.email, user.provider);
 
-    // Set admin session cookie (same format as password-based login)
-    let cookie_value = format!(
-        "deko_admin={}:{}; Path=/; HttpOnly; SameSite=Strict; Max-Age=28800",
-        user.email, user.provider
-    );
+    // issue a real server-side session; the old forged "email:provider"
+    // cookie granted admin to anyone who could type a colon
+    let cookie_value = if let Some(pool) = &state.pool {
+        match crate::services::session::create(pool, &user.email).await {
+            Ok(token) => format!(
+                "deko_session={}; Path=/; HttpOnly; SameSite=Strict; Max-Age={}",
+                token,
+                crate::services::session::SESSION_TTL.as_secs()
+            ),
+            Err(_) => {
+                warn!("Failed to create oauth session");
+                return (
+                    axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({"error": "Session creation failed"})),
+                )
+                    .into_response();
+            }
+        }
+    } else {
+        warn!("OAuth enabled without database pool; refusing to mint session");
+        return (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "OAuth misconfigured"})),
+        )
+            .into_response();
+    };
 
     let mut response = Redirect::to("/admin").into_response();
     if let Ok(val) = HeaderValue::from_str(&cookie_value) {

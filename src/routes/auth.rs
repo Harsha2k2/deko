@@ -24,10 +24,10 @@ pub struct RegisterAgentRequest {
 )]
 pub async fn register_agent(
     State(pool): State<crate::db::DbPool>,
-    axum::Extension(admin): axum::Extension<bool>,
+    axum::Extension(_admin): axum::Extension<String>,
     Json(req): Json<RegisterAgentRequest>,
 ) -> Result<(StatusCode, Json<CreateAgentResponse>)> {
-    if !admin {
+    if _admin.is_empty() {
         return Err(AppError::Forbidden("Admin access required".into()));
     }
 
@@ -87,10 +87,10 @@ pub struct RevokeAgentRequest {
 )]
 pub async fn revoke_agent(
     State(pool): State<crate::db::DbPool>,
-    axum::Extension(admin): axum::Extension<bool>,
+    axum::Extension(_admin): axum::Extension<String>,
     Json(req): Json<RevokeAgentRequest>,
 ) -> Result<Json<serde_json::Value>> {
-    if !admin {
+    if _admin.is_empty() {
         return Err(AppError::Forbidden("Admin access required".into()));
     }
 
@@ -141,9 +141,9 @@ pub struct AgentSummary {
 #[allow(dead_code)]
 pub async fn list_agents(
     State(pool): State<crate::db::DbPool>,
-    axum::Extension(admin): axum::Extension<bool>,
+    axum::Extension(_admin): axum::Extension<String>,
 ) -> Result<Json<ListAgentsResponse>> {
-    if !admin {
+    if _admin.is_empty() {
         return Err(AppError::Forbidden("Admin access required".into()));
     }
 
@@ -189,10 +189,10 @@ pub struct RotateApiKeyResponse {
 )]
 pub async fn rotate_agent_key(
     State(pool): State<crate::db::DbPool>,
-    axum::Extension(admin): axum::Extension<bool>,
+    axum::Extension(_admin): axum::Extension<String>,
     Json(req): Json<RotateApiKeyRequest>,
 ) -> Result<(StatusCode, Json<RotateApiKeyResponse>)> {
-    if !admin {
+    if _admin.is_empty() {
         return Err(AppError::Forbidden("Admin access required".into()));
     }
 
@@ -247,10 +247,10 @@ pub struct CreateApiKeyResponse {
 
 pub async fn create_api_key(
     State(pool): State<crate::db::DbPool>,
-    axum::Extension(admin): axum::Extension<bool>,
+    axum::Extension(_admin): axum::Extension<String>,
     Json(req): Json<CreateApiKeyRequest>,
 ) -> Result<Json<CreateApiKeyResponse>> {
-    if !admin {
+    if _admin.is_empty() {
         return Err(AppError::Forbidden("Admin access required".into()));
     }
 
@@ -300,10 +300,10 @@ pub struct ApiKeySummary {
 
 pub async fn list_api_keys(
     State(pool): State<crate::db::DbPool>,
-    axum::Extension(admin): axum::Extension<bool>,
+    axum::Extension(_admin): axum::Extension<String>,
     Json(req): Json<ListApiKeysRequest>,
 ) -> Result<Json<Vec<ApiKeySummary>>> {
-    if !admin {
+    if _admin.is_empty() {
         return Err(AppError::Forbidden("Admin access required".into()));
     }
 

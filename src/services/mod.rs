@@ -8,6 +8,7 @@ pub mod policy_engine;
 pub mod processor;
 pub mod prompt_injection;
 pub mod providers;
+pub mod session;
 pub mod verdict;
 pub mod webhook;
 pub mod ws_broadcaster;
