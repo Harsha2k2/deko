@@ -139,17 +139,17 @@ pub async fn auth_middleware(State(state): State<AgentState>, request: Request<B
         }
     };
 
-    sqlx::query("INSERT INTO audit_log (id, action_id, event_type, details) VALUES (?, ?, ?, ?)")
-        .bind(uuid::Uuid::new_v4().to_string())
-        .bind(&agent.id)
-        .bind("api_key_used")
-        .bind(serde_json::json!({
+    crate::services::audit::record(
+        &state.pool,
+        Some(&agent.id),
+        "api_key_used",
+        &serde_json::json!({
             "agent_name": agent.name,
             "path": request.uri().path(),
-        }))
-        .execute(&state.pool)
-        .await
-        .ok();
+        }),
+    )
+    .await
+    .ok();
 
     let mut request = request;
     request.extensions_mut().insert(agent);

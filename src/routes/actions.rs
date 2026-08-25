@@ -172,21 +172,19 @@ pub async fn create_action(
     .bind(req.priority.unwrap_or(5))
     .bind(&req.execute_at)
     .execute(&pool)
-    .await
-    .map_err(AppError::Database)?;
+    .await?;
 
-    sqlx::query("INSERT INTO audit_log (id, action_id, event_type, details) VALUES (?, ?, ?, ?)")
-        .bind(uuid::Uuid::new_v4().to_string())
-        .bind(&id)
-        .bind("action_created")
-        .bind(serde_json::json!({
+    crate::services::audit::record(
+        &pool,
+        Some(&id),
+        "action_created",
+        &serde_json::json!({
             "agent_id": agent.id,
             "agent_name": agent.name,
             "intent": sanitized_intent,
-        }))
-        .execute(&pool)
-        .await
-        .map_err(AppError::Database)?;
+        }),
+    )
+    .await?;
 
     Ok((
         StatusCode::CREATED,
@@ -298,8 +296,7 @@ pub async fn get_action_status(
     )
     .bind(&id)
     .fetch_optional(&pool)
-    .await
-    .map_err(AppError::Database)?;
+    .await?;
 
     let body = if let Some(ref v) = verdict {
         serde_json::json!({
@@ -366,14 +363,14 @@ pub async fn batch_create_actions(
         .await
         .map_err(AppError::Database)?;
 
-        sqlx::query("INSERT INTO audit_log (id, action_id, event_type, details) VALUES (?, ?, ?, ?)")
-            .bind(uuid::Uuid::new_v4().to_string())
-            .bind(&id)
-            .bind("action_created")
-            .bind(serde_json::json!({"agent_id": agent.id, "intent": sanitized_intent, "batch": true}))
-            .execute(&pool)
-            .await
-            .ok();
+        crate::services::audit::record(
+            &pool,
+            Some(&id),
+            "action_created",
+            &serde_json::json!({"agent_id": agent.id, "intent": sanitized_intent, "batch": true}),
+        )
+        .await
+        .ok();
 
         results.push(serde_json::json!({
             "id": id,
@@ -493,8 +490,7 @@ pub async fn forward_action(
     )
     .bind(&id)
     .fetch_optional(&pool)
-    .await
-    .map_err(AppError::Database)?;
+    .await?;
 
     let verdict = verdict.ok_or_else(|| AppError::BadRequest("No verdict available yet".into()))?;
 
@@ -505,8 +501,9 @@ pub async fn forward_action(
     // validate the target before touching state; agents control this url and
     // deko must never become a pivot into internal networks.
     let validated_target = match (&action.target_url, &action.target_method) {
-        (Some(url), Some(_method)) => crate::services::egress::ValidatedUrl::parse(url)
-            .map_err(AppError::BadRequest)?,
+        (Some(url), Some(_method)) => {
+            crate::services::egress::ValidatedUrl::parse(url).map_err(AppError::BadRequest)?
+        }
         _ => {
             return Ok(Json(
                 serde_json::json!({ "forwarded": false, "note": "No target URL configured" }),
@@ -532,14 +529,14 @@ pub async fn forward_action(
                 action.payload.as_deref(),
                 &validated_target,
             )
-            .await {
+            .await
+            {
                 Ok((status, resp_body, attempts)) => {
-                    let transformed_body =
-                        if let Some(ref transform) = action_metadata_transform(&action.metadata) {
-                            apply_transform(&resp_body, transform)
-                        } else {
-                            resp_body.clone()
-                        };
+                    let transformed_body = if let Some(ref transform) = action_metadata_transform(&action.metadata) {
+                        apply_transform(&resp_body, transform)
+                    } else {
+                        resp_body.clone()
+                    };
                     serde_json::json!({
                         "forwarded": true,
                         "target_status": status,
@@ -556,16 +553,17 @@ pub async fn forward_action(
                         .await
                         .ok();
 
-                    sqlx::query("INSERT INTO audit_log (id, action_id, event_type, details) VALUES (?, ?, 'forward_failed', ?)")
-                        .bind(uuid::Uuid::new_v4().to_string())
-                        .bind(&id)
-                        .bind(serde_json::json!({
+                    crate::services::audit::record(
+                        &pool,
+                        Some(&id),
+                        "forward_failed",
+                        &serde_json::json!({
                             "error": forward_err,
                             "target_url": action.target_url,
-                        }))
-                        .execute(&pool)
-                        .await
-                        .ok();
+                        }),
+                    )
+                    .await
+                    .ok();
 
                     serde_json::json!({
                         "forwarded": false,
@@ -671,17 +669,16 @@ async fn execute_forwarded_request(
                         full_body
                     };
 
-                    sqlx::query(
-                        "INSERT INTO audit_log (id, action_id, event_type, details) VALUES (?, ?, 'action_forwarded', ?)",
+                    crate::services::audit::record(
+                        pool,
+                        Some(action_id),
+                        "action_forwarded",
+                        &serde_json::json!({
+                            "target_status": status.as_u16(),
+                            "attempts": attempt,
+                            "hops": hops + 1,
+                        }),
                     )
-                    .bind(uuid::Uuid::new_v4().to_string())
-                    .bind(action_id)
-                    .bind(serde_json::json!({
-                        "target_status": status.as_u16(),
-                        "attempts": attempt,
-                        "hops": hops + 1,
-                    }))
-                    .execute(pool)
                     .await
                     .ok();
 

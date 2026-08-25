@@ -196,6 +196,7 @@ pub fn create_router(
         .route("/admin/policies/{id}", axum::routing::delete(policies::delete_policy))
         .route("/admin/audit/export", axum::routing::get(admin::export_audit_log))
         .route("/admin/audit/search", axum::routing::get(admin::search_audit_log))
+        .route("/admin/audit/verify", axum::routing::get(admin::verify_audit_chain))
         .layer(axum::middleware::from_fn(admin_auth_middleware));
 
     // JSON API routes for the SPA (require admin auth)
