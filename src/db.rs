@@ -1,6 +1,3 @@
-#[cfg(feature = "postgres")]
-use sqlx::{postgres::PgPoolOptions, PgPool};
-#[cfg(not(feature = "postgres"))]
 use sqlx::{sqlite::SqlitePoolOptions, SqlitePool};
 use std::ops::Deref;
 use std::sync::Arc;
@@ -8,24 +5,14 @@ use tracing::{error, info};
 
 use crate::config::Config;
 
-#[cfg(not(feature = "postgres"))]
 pub type DbPool = SqlitePool;
-#[cfg(feature = "postgres")]
-pub type DbPool = PgPool;
 
-/// Wraps writer and optional reader pools for read replica support.
-///
-/// When `DEKO_DATABASE_READ_URL` is set, use `.reader()` for read-only
-/// SELECT queries and `.writer()` for INSERT/UPDATE/DELETE. Otherwise
-/// both methods return the same pool.
-///
-/// The `DbPoolSet` is placed in request extensions so route handlers
-/// can access it without changing their `State<DbPool>` signature.
+/// wraps writer and optional reader pools for future read-replica support.
+/// today every reader call resolves to the single writer pool; the type is
+/// kept so query routing can be introduced without touching signatures.
 #[derive(Clone)]
 pub struct DbPoolSet {
-    #[allow(dead_code)]
     writer: DbPool,
-    #[allow(dead_code)]
     reader: DbPool,
 }
 
@@ -44,7 +31,7 @@ impl DbPoolSet {
     }
 }
 
-/// Auto-deref to the writer pool so &DbPoolSet can be used with sqlx.
+/// auto-deref to the writer pool so &DbPoolSet can be used with sqlx.
 impl Deref for DbPoolSet {
     type Target = DbPool;
 
@@ -54,27 +41,26 @@ impl Deref for DbPoolSet {
 }
 
 async fn create_pool(url: &str) -> anyhow::Result<DbPool> {
-    #[cfg(not(feature = "postgres"))]
     let pool = SqlitePoolOptions::new()
         .max_connections(10)
         .acquire_timeout(std::time::Duration::from_secs(5))
         .connect(url)
         .await?;
-
-    #[cfg(feature = "postgres")]
-    let pool = PgPoolOptions::new()
-        .max_connections(10)
-        .acquire_timeout(std::time::Duration::from_secs(5))
-        .connect(url)
-        .await?;
-
     Ok(pool)
 }
 
 pub async fn init_db(config: &Config) -> anyhow::Result<(DbPool, Arc<DbPoolSet>)> {
     info!("Initializing database connection");
 
-    let writer = create_pool(&config.database_url).await?;
+    // wal mode: concurrent readers during background writes; required for
+    // the polling processor + request path on one database file
+    let url = if config.database_url.starts_with("sqlite:") && !config.database_url.contains('?') {
+        format!("{}?mode=rwc", config.database_url)
+    } else {
+        config.database_url.clone()
+    };
+
+    let writer = create_pool(&url).await?;
 
     let reader = if let Some(ref reader_url) = config.database_read_url {
         info!("Using read replica: {}", reader_url);
@@ -102,11 +88,7 @@ pub async fn run_migrations(pool: &DbPool) -> anyhow::Result<()> {
         backup_database(&backup_dir).await;
     }
 
-    #[cfg(not(feature = "postgres"))]
     let result = sqlx::migrate!("./migrations").run(pool).await;
-
-    #[cfg(feature = "postgres")]
-    let result = sqlx::migrate!("./migrations_postgres").run(pool).await;
 
     match result {
         Ok(_) => {
@@ -116,9 +98,7 @@ pub async fn run_migrations(pool: &DbPool) -> anyhow::Result<()> {
         Err(e) => {
             error!("Migration failed: {}", e);
             anyhow::bail!(
-                "Database migration failed: {}. To skip: set DEKO_SKIP_MIGRATIONS=1. \
-                 To attempt rollback: create down migrations and set DEKO_MIGRATE_REVERT_ON_FAILURE=1. \
-                 Error: {}",
+                "Database migration failed: {}. To skip: set DEKO_SKIP_MIGRATIONS=1. Error: {}",
                 e,
                 e
             );
@@ -126,17 +106,12 @@ pub async fn run_migrations(pool: &DbPool) -> anyhow::Result<()> {
     }
 }
 
-/// Performs a file-level backup of the SQLite database before migrations.
-/// For PostgreSQL, this is a no-op (use pg_dump externally).
+/// performs a file-level backup of the sqlite database before migrations.
 async fn backup_database(backup_dir: &str) {
     let db_url = std::env::var("DEKO_DATABASE_URL").unwrap_or_default();
 
-    if !db_url.starts_with("sqlite:") {
-        info!("Skipping file backup for non-SQLite database. Use pg_dump or your preferred tool.");
-        return;
-    }
-
     let db_path = db_url.trim_start_matches("sqlite://").trim_start_matches("sqlite:");
+    let db_path = db_path.split('?').next().unwrap_or(db_path);
     let db_path = if db_path.is_empty() { "data/deko.db" } else { db_path };
 
     let path = std::path::Path::new(db_path);
