@@ -971,9 +971,24 @@ async fn test_audit_chain_verify_detects_tampering() {
     let entries_before = body["entries_checked"].as_u64().unwrap();
     assert!(entries_before >= 3);
 
-    // tamper with one entry in the middle of the chain
+    // layer 1: database guards refuse the edit outright
     let middle_id: (String,) = sqlx::query_as("SELECT id FROM audit_log ORDER BY rowid ASC LIMIT 1 OFFSET 1")
         .fetch_one(&pool)
+        .await
+        .unwrap();
+    let guard_result = sqlx::query("UPDATE audit_log SET details = '{\"evil\": true}' WHERE id = ?")
+        .bind(&middle_id.0)
+        .execute(&pool)
+        .await;
+    assert!(
+        guard_result.is_err(),
+        "tamper guards must refuse direct updates on chained entries"
+    );
+
+    // layer 2: a determined attacker who drops the guards still cannot hide
+    // the edit — hash recomputation catches it
+    sqlx::query("DROP TRIGGER IF EXISTS audit_log_guard_update")
+        .execute(&pool)
         .await
         .unwrap();
     sqlx::query("UPDATE audit_log SET details = '{\"evil\": true}' WHERE id = ?")
