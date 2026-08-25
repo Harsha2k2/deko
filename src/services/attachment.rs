@@ -12,7 +12,9 @@ pub struct AttachmentService {
 
 impl AttachmentService {
     pub fn new() -> Self {
-        let dir = PathBuf::from("static/uploads");
+        // stored outside every served path; downloads go through the
+        // authenticated route only
+        let dir = PathBuf::from("data/uploads");
         std::fs::create_dir_all(&dir).ok();
         Self { storage_dir: dir }
     }
