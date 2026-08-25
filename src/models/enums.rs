@@ -51,6 +51,7 @@ pub enum ActionStatus {
     Denied,
     Escalated,
     Forwarded,
+    ForwardFailed,
 }
 
 impl std::fmt::Display for ActionStatus {
@@ -62,6 +63,7 @@ impl std::fmt::Display for ActionStatus {
             ActionStatus::Denied => write!(f, "denied"),
             ActionStatus::Escalated => write!(f, "escalated"),
             ActionStatus::Forwarded => write!(f, "forwarded"),
+            ActionStatus::ForwardFailed => write!(f, "forward_failed"),
         }
     }
 }
