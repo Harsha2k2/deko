@@ -79,7 +79,7 @@ export const api = {
     request<import('@/types').Agent[]>('/api/admin/agents'),
 
   registerAgent: (name: string) =>
-    request<{ agent_id: string; api_key: string }>('/admin/agents/register', {
+    request<{ id: string; name: string; api_key: string; created_at: string }>('/admin/agents/register', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name }),
