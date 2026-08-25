@@ -39,7 +39,11 @@ impl WebhookService {
         mac.update(timestamp.to_string().as_bytes());
         mac.update(b".");
         mac.update(payload_bytes);
-        Some(format!("t={},v1={}", timestamp, hex::encode(mac.finalize().into_bytes())))
+        Some(format!(
+            "t={},v1={}",
+            timestamp,
+            hex::encode(mac.finalize().into_bytes())
+        ))
     }
 
     /// verifies a signature header against a payload (receiver-side logic,
@@ -93,9 +97,15 @@ impl WebhookService {
         let timestamp = chrono::Utc::now().timestamp();
         let signature = self.sign(&payload_bytes, timestamp);
 
-        let mut request = self.client.post(url).body(payload_bytes.clone()).header("Content-Type", "application/json");
+        let mut request = self
+            .client
+            .post(url)
+            .body(payload_bytes.clone())
+            .header("Content-Type", "application/json");
         if let Some(sig) = signature {
-            request = request.header("X-Deko-Signature", sig).header("X-Deko-Timestamp", timestamp.to_string());
+            request = request
+                .header("X-Deko-Signature", sig)
+                .header("X-Deko-Timestamp", timestamp.to_string());
         }
 
         let mut last_err = None;
@@ -192,7 +202,11 @@ mod tests {
 
     #[test]
     fn sign_without_secret_is_none() {
-        let svc = WebhookService { client: Client::new(), webhook_url: None, webhook_secret: None };
+        let svc = WebhookService {
+            client: Client::new(),
+            webhook_url: None,
+            webhook_secret: None,
+        };
         assert!(svc.sign(b"x", 1).is_none());
         assert!(!svc.verify(b"x", 1, "t=1,v1=00"));
     }

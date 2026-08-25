@@ -335,13 +335,20 @@ fn test_policy_inner(req: &TestPolicyRequest) -> Option<SimulateRuleResult> {
                     crate::models::RiskLevel::High => "high".into(),
                     crate::models::RiskLevel::Critical => "critical".into(),
                 });
-                if outcome.immediate_deny { break; }
+                if outcome.immediate_deny {
+                    break;
+                }
             }
         }
     }
 
     if matched {
-        Some(SimulateRuleResult { matched, immediate_deny, reason, risk_level })
+        Some(SimulateRuleResult {
+            matched,
+            immediate_deny,
+            reason,
+            risk_level,
+        })
     } else {
         None
     }
