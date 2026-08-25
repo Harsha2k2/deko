@@ -104,8 +104,20 @@ pub async fn list_attachments(
 
 pub async fn download_attachment(
     State(pool): State<DbPool>,
+    axum::Extension(agent): axum::Extension<Agent>,
     Path((action_id, attachment_id)): Path<(String, String)>,
 ) -> Result<axum::response::Response> {
+    // ownership first: an agent may only touch attachments on its own actions
+    let owner: Option<(String,)> = sqlx::query_as("SELECT agent_id FROM actions WHERE id = ?")
+        .bind(&action_id)
+        .fetch_optional(&pool)
+        .await
+        .map_err(AppError::Database)?;
+    match owner {
+        Some((aid,)) if aid == agent.id => {}
+        _ => return Err(AppError::NotFound("Action not found".into())),
+    }
+
     let svc = AttachmentService::new();
     let attachment = svc.get_by_id(&pool, &attachment_id).await?;
 
