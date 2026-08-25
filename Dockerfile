@@ -2,6 +2,14 @@ FROM lukemathwalker/cargo-chef:latest-rust-1 AS chef
 WORKDIR /app
 RUN apt-get update && apt-get install -y libsqlite3-dev && rm -rf /var/lib/apt/lists/*
 
+# admin spa: built once, copied into the runtime image
+FROM node:18-slim AS admin-ui
+WORKDIR /ui
+COPY admin/package.json admin/package-lock.json ./
+RUN npm ci
+COPY admin/ .
+RUN npm run build
+
 FROM chef AS planner
 COPY . .
 RUN cargo chef prepare --recipe-path recipe.json
@@ -21,6 +29,7 @@ WORKDIR /app
 COPY --from=builder /app/target/release/deko /usr/local/bin/deko
 COPY --from=builder /app/target/release/healthcheck /usr/local/bin/healthcheck
 COPY --from=builder /app/migrations /app/migrations
+COPY --from=admin-ui /ui/dist /app/admin/dist
 USER deko
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
