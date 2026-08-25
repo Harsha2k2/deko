@@ -108,7 +108,7 @@ export const api = {
   listPolicies: () =>
     request<import('@/types').Policy[]>('/api/admin/policies'),
 
-  createPolicy: (data: { name: string; rules_json: string; active: boolean; priority: number }) =>
+  createPolicy: (data: { name: string; rules: unknown; description?: string }) =>
     request<import('@/types').Policy>('/admin/policies', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -125,7 +125,7 @@ export const api = {
   deletePolicy: (id: string) =>
     request<void>(`/admin/policies/${id}`, { method: 'DELETE' }),
 
-  testPolicy: (data: { rules: import('@/types').Policy['rules_json']; intent: string; payload?: string; target_url?: string }) =>
+  testPolicy: (data: { rules: unknown; intent: string; payload?: string; target_url?: string }) =>
     request<{ matched: boolean; immediate_deny: boolean; reason: string; risk_level?: string }>('/admin/policies/test', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

@@ -23,7 +23,7 @@ export interface Action {
   verdict_reason: string | null
 }
 
-export type ActionStatus = 'pending' | 'processing' | 'approved' | 'denied' | 'escalated' | 'forwarded'
+export type ActionStatus = 'pending' | 'processing' | 'approved' | 'denied' | 'escalated' | 'forwarded' | 'forward_failed'
 export type RiskLevel = 'low' | 'medium' | 'high' | 'critical'
 export type VerdictDecision = 'approved' | 'denied' | 'escalate'
 
@@ -42,9 +42,9 @@ export interface Verdict {
 export interface Policy {
   id: string
   name: string
-  rules_json: string
+  description: string
+  rules: unknown
   active: boolean
-  priority: number
   created_at: string
   updated_at: string
 }
