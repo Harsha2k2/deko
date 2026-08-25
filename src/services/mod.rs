@@ -1,4 +1,5 @@
 pub mod attachment;
+pub mod egress;
 pub mod llm;
 pub mod metrics;
 pub mod oauth;
