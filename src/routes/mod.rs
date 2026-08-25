@@ -11,6 +11,7 @@ mod token;
 mod ws;
 
 use crate::db::{DbPool, DbPoolSet};
+use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::Router;
@@ -197,7 +198,10 @@ pub fn create_router(
         .route("/admin/audit/export", axum::routing::get(admin::export_audit_log))
         .route("/admin/audit/search", axum::routing::get(admin::search_audit_log))
         .route("/admin/audit/verify", axum::routing::get(admin::verify_audit_chain))
-        .layer(axum::middleware::from_fn(admin_auth_middleware));
+        .layer(axum::middleware::from_fn_with_state(
+            pool.clone(),
+            admin_auth_middleware,
+        ));
 
     // JSON API routes for the SPA (require admin auth)
     let json_api_routes = Router::new()
@@ -221,11 +225,14 @@ pub fn create_router(
         .route("/api/admin/policies", axum::routing::get(api_admin::list_policies))
         .route("/api/admin/audit", axum::routing::get(api_admin::list_audit_log))
         .route("/api/admin/ws", axum::routing::get(admin_ws::admin_ws_handler))
-        .layer(axum::middleware::from_fn(admin_auth_middleware));
+        .layer(axum::middleware::from_fn_with_state(
+            pool.clone(),
+            admin_auth_middleware,
+        ));
 
     // OAuth routes
     let oauth_config = crate::services::oauth::OAuthConfig::from_env();
-    let oauth_state = oauth::OAuthState::new(oauth_config);
+    let oauth_state = oauth::OAuthState::with_pool(oauth_config, Some(pool.clone()));
     let oauth_routes = Router::new()
         .route("/admin/auth/login", axum::routing::get(oauth::oauth_login))
         .route("/admin/auth/callback", axum::routing::get(oauth::oauth_callback))
@@ -299,74 +306,23 @@ pub async fn metrics_prometheus_endpoint(
 }
 
 async fn admin_auth_middleware(
+    State(pool): State<crate::db::DbPool>,
     request: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
-    let admin_password = std::env::var("DEKO_ADMIN_PASSWORD").unwrap_or_default();
-    let oauth_enabled = std::env::var("DEKO_OAUTH_ENABLED")
-        .ok()
-        .and_then(|v| v.parse::<bool>().ok())
-        .unwrap_or(false);
-
-    let auth_header = request
-        .headers()
-        .get("X-Admin-Password")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
-
-    let cookie_value = request
-        .headers()
-        .get("Cookie")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|c| {
-            c.split(';')
-                .find(|part| part.trim().starts_with("deko_admin="))
-                .and_then(|part| part.trim().split_once('='))
-                .map(|(_, value)| value.to_string())
-        })
-        .unwrap_or_default();
-
-    // IP allowlist check
-    if let Some(ip) = request.headers().get("X-Forwarded-For").and_then(|v| v.to_str().ok()) {
-        let allowed = std::env::var("DEKO_ADMIN_IP_ALLOWLIST").unwrap_or_default();
-        if !allowed.is_empty() && !allowed.split(',').any(|a| ip.trim().starts_with(a.trim())) {
-            return (
-                StatusCode::FORBIDDEN,
-                axum::Json(serde_json::json!({"error": "Admin access restricted by IP"})),
-            )
-                .into_response();
+    // session cookie or constant-time password header; the old scheme
+    // accepted the raw password as its own cookie and any "x:y" shaped
+    // cookie when oauth was enabled (trivially forgeable)
+    match crate::routes::admin::verify_admin(&pool, request.headers()).await {
+        Ok(identity) => {
+            let mut request = request;
+            request.extensions_mut().insert(identity);
+            next.run(request).await
         }
-    }
-
-    let is_admin = if !admin_password.is_empty() {
-        let valid_passwords: Vec<&str> = admin_password.split(',').map(|s| s.trim()).collect();
-        if valid_passwords.iter().any(|p| *p == auth_header || *p == cookie_value) {
-            true
-        } else if oauth_enabled && !cookie_value.is_empty() && cookie_value.contains(':') {
-            // OAuth cookie format: "email:provider"
-            let parts: Vec<&str> = cookie_value.splitn(2, ':').collect();
-            parts.len() == 2 && !parts[0].is_empty()
-        } else {
-            false
-        }
-    } else if oauth_enabled && !cookie_value.is_empty() && cookie_value.contains(':') {
-        // No password set, but OAuth is enabled
-        let parts: Vec<&str> = cookie_value.splitn(2, ':').collect();
-        parts.len() == 2 && !parts[0].is_empty()
-    } else {
-        false
-    };
-
-    if !is_admin {
-        return (
+        Err(_) => (
             StatusCode::FORBIDDEN,
             axum::Json(serde_json::json!({"error": "Admin access required"})),
         )
-            .into_response();
+            .into_response(),
     }
-
-    let mut request = request;
-    request.extensions_mut().insert(is_admin);
-
-    next.run(request).await
 }

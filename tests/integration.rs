@@ -1150,3 +1150,181 @@ async fn test_all_providers_failing_denies_fail_closed() {
         reason.0
     );
 }
+
+// ---- hardened admin auth (sessions) ----
+
+#[tokio::test]
+async fn test_login_mints_opaque_session_not_password_cookie() {
+    let (pool, pool_set) = setup_test_db().await;
+    let config = test_config();
+    let app = create_router(
+        &config,
+        pool.clone(),
+        pool_set.clone(),
+        std::sync::Arc::new(deko::services::ws_broadcaster::WsBroadcaster::new(64)),
+    )
+    .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(format!("http://127.0.0.1:{}/admin/login", addr.port()))
+        .header("X-Forwarded-For", "10.9.9.9")
+        .form(&serde_json::json!({"password": "testpassword"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    let set_cookie = resp
+        .headers()
+        .get("set-cookie")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    assert!(
+        set_cookie.starts_with("deko_session="),
+        "cookie renamed: {}",
+        set_cookie
+    );
+    assert!(
+        !set_cookie.contains("testpassword"),
+        "raw password must never appear in cookie"
+    );
+    assert!(set_cookie.contains("HttpOnly"));
+
+    // session token authenticates the admin api without password header
+    let token = set_cookie
+        .split(';')
+        .next()
+        .unwrap()
+        .trim_start_matches("deko_session=")
+        .to_string();
+
+    let resp = client
+        .get(format!("http://127.0.0.1:{}/api/admin/dashboard", addr.port()))
+        .header("Cookie", format!("deko_session={}", token))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200, "valid session cookie grants admin");
+}
+
+#[tokio::test]
+async fn test_forged_oauth_style_cookies_are_rejected() {
+    let (pool, pool_set) = setup_test_db().await;
+    let config = test_config();
+    let app = create_router(
+        &config,
+        pool.clone(),
+        pool_set.clone(),
+        std::sync::Arc::new(deko::services::ws_broadcaster::WsBroadcaster::new(64)),
+    )
+    .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+    let client = reqwest::Client::new();
+
+    // the old middleware granted admin to any "x:y" shaped deko_admin cookie
+    for evil in [
+        "deko_admin=attacker@google.com:google",
+        "deko_admin=anything:goes",
+        "deko_admin=testpassword", // old raw-password cookie scheme also dead
+    ] {
+        let resp = client
+            .get(format!("http://127.0.0.1:{}/api/admin/dashboard", addr.port()))
+            .header("Cookie", evil)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 403, "forged cookie {:?} must not grant admin", evil);
+    }
+
+    // unknown session tokens rejected too
+    let resp = client
+        .get(format!("http://127.0.0.1:{}/api/admin/dashboard", addr.port()))
+        .header(
+            "Cookie",
+            "deko_session=deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+        )
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 403);
+}
+
+#[tokio::test]
+async fn test_logout_kills_session_server_side() {
+    let (pool, pool_set) = setup_test_db().await;
+    let config = test_config();
+    let app = create_router(
+        &config,
+        pool.clone(),
+        pool_set.clone(),
+        std::sync::Arc::new(deko::services::ws_broadcaster::WsBroadcaster::new(64)),
+    )
+    .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(format!("http://127.0.0.1:{}/admin/login", addr.port()))
+        .form(&serde_json::json!({"password": "testpassword"}))
+        .send()
+        .await
+        .unwrap();
+    let set_cookie = resp
+        .headers()
+        .get("set-cookie")
+        .and_then(|v| v.to_str().ok())
+        .unwrap()
+        .to_string();
+    let token = set_cookie
+        .split(';')
+        .next()
+        .unwrap()
+        .trim_start_matches("deko_session=")
+        .to_string();
+
+    // works before logout
+    let resp = client
+        .get(format!("http://127.0.0.1:{}/api/admin/dashboard", addr.port()))
+        .header("Cookie", format!("deko_session={}", token))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    // logout deletes server-side row
+    let resp = client
+        .get(format!("http://127.0.0.1:{}/admin/logout", addr.port()))
+        .header("Cookie", format!("deko_session={}", token))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    // same token is now dead even if the browser kept the cookie
+    let resp = client
+        .get(format!("http://127.0.0.1:{}/api/admin/dashboard", addr.port()))
+        .header("Cookie", format!("deko_session={}", token))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 403, "session row must be deleted on logout");
+
+    // only hash stored in db
+    let stored: Vec<(String,)> = sqlx::query_as("SELECT id FROM admin_sessions")
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    assert!(
+        stored.iter().all(|(id,)| id != &token),
+        "raw session token must never be stored"
+    );
+}

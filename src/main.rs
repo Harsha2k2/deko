@@ -13,7 +13,7 @@ use config::{init_tracing, Config};
 use db::{init_db, run_migrations};
 use routes::create_router;
 use services::{ws_broadcaster::WsBroadcaster, ActionProcessor, MetricsCollector, VerdictService};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 /// Deko - AI Agent Action Watchdog
 ///
@@ -80,6 +80,12 @@ async fn main() -> anyhow::Result<()> {
             error!("audit chain backfill failed: {}", e);
             return Err(e.into());
         }
+    }
+
+    match services::session::purge_expired(&pool).await {
+        Ok(n) if n > 0 => info!("purged {} expired admin sessions", n),
+        Ok(_) => {}
+        Err(e) => warn!("admin session purge failed: {}", e),
     }
 
     let metrics = Arc::new(MetricsCollector::new());

@@ -2,7 +2,9 @@ use axum::extract::{Path, Query, State};
 use axum::response::IntoResponse;
 use axum::Json;
 use serde::Deserialize;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use crate::error::{AppError, Result};
 use crate::models::{Action, ActionStatus};
@@ -12,55 +14,148 @@ pub struct AdminLoginRequest {
     pub password: String,
 }
 
-pub async fn admin_logout() -> impl axum::response::IntoResponse {
+/// constant-time equality for secret comparison; same length strings only
+/// (a length difference leaks nothing useful and short-circuits safely).
+fn constant_time_eq(a: &str, b: &str) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    a.as_bytes()
+        .iter()
+        .zip(b.as_bytes())
+        .fold(0u8, |acc, (x, y)| acc | (x ^ y))
+        == 0
+}
+
+/// per-ip sliding login throttle. unlike the previous global counter this
+/// cannot be exhausted by other users' traffic, and windows reset.
+#[derive(Clone)]
+struct LoginThrottle {
+    attempts: Arc<Mutex<HashMap<String, Vec<Instant>>>>,
+    max_attempts: usize,
+    window: std::time::Duration,
+}
+
+impl LoginThrottle {
+    fn new() -> Self {
+        Self {
+            attempts: Arc::new(Mutex::new(HashMap::new())),
+            max_attempts: 10,
+            window: std::time::Duration::from_secs(60),
+        }
+    }
+
+    fn allow(&self, ip: &str) -> bool {
+        let mut map = self.attempts.lock().unwrap();
+        let now = Instant::now();
+        let recent = map.entry(ip.to_string()).or_default();
+        recent.retain(|t| now.duration_since(*t) < self.window);
+        if recent.len() >= self.max_attempts {
+            return false;
+        }
+        recent.push(now);
+        true
+    }
+}
+
+fn client_ip(headers: &axum::http::HeaderMap) -> String {
+    // best-effort pilot identification; real enforcement belongs at the
+    // ingress layer where x-forwarded-for is trustworthy
+    headers
+        .get("X-Forwarded-For")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.split(',').next())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| "local".to_string())
+}
+
+fn extract_session_token(headers: &axum::http::HeaderMap) -> Option<String> {
+    let cookie_header = headers.get(axum::http::header::COOKIE)?.to_str().ok()?;
+    for part in cookie_header.split(';') {
+        let trimmed = part.trim();
+        if let Some(value) = trimmed.strip_prefix("deko_session=") {
+            if !value.is_empty() {
+                return Some(value.to_string());
+            }
+        }
+    }
+    None
+}
+
+/// validates admin credentials from either a server-side session cookie or
+/// the bootstrap password header. shared by the middleware and endpoints.
+pub async fn verify_admin(pool: &crate::db::DbPool, headers: &axum::http::HeaderMap) -> Result<String> {
+    // 1. session cookie (preferred; revocable, expiring, hashed at rest)
+    if let Some(token) = extract_session_token(headers) {
+        match crate::services::session::validate(pool, &token).await? {
+            Some(identity) => return Ok(identity),
+            None => {}
+        }
+    }
+
+    // 2. bootstrap password header (for scripted api use before any login)
+    let expected = std::env::var("DEKO_ADMIN_PASSWORD").unwrap_or_default();
+    if !expected.is_empty() {
+        if let Some(provided) = headers.get("X-Admin-Password").and_then(|v| v.to_str().ok()) {
+            if constant_time_eq(provided, &expected) {
+                return Ok("password".to_string());
+            }
+        }
+    }
+
+    Err(AppError::Forbidden("Admin access required".into()))
+}
+
+pub async fn admin_logout(
+    State(pool): State<crate::db::DbPool>,
+    headers: axum::http::HeaderMap,
+) -> impl axum::response::IntoResponse {
     use axum::http::header::{HeaderValue, SET_COOKIE};
-    let cookie = "deko_admin=; Path=/; HttpOnly; Max-Age=0";
+    // delete server-side so the token is dead even if the cookie lingers
+    if let Some(token) = extract_session_token(&headers) {
+        crate::services::session::delete(&pool, &token).await.ok();
+    }
+    let cookie = "deko_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0";
     let mut resp = axum::Json(serde_json::json!({ "ok": true })).into_response();
     resp.headers_mut()
         .insert(SET_COOKIE, HeaderValue::from_str(cookie).unwrap());
     resp
 }
 
-static LOGIN_RATE_LIMIT: AtomicU64 = AtomicU64::new(0);
-const MAX_LOGIN_ATTEMPTS: u64 = 5;
-
-fn check_login_rate_limit() -> Result<()> {
-    let attempts = LOGIN_RATE_LIMIT.load(Ordering::Relaxed);
-    if attempts >= MAX_LOGIN_ATTEMPTS {
-        return Err(AppError::RateLimited);
-    }
-    Ok(())
-}
-
-fn record_login_attempt() {
-    LOGIN_RATE_LIMIT.fetch_add(1, Ordering::Relaxed);
-}
+static LOGIN_THROTTLE: std::sync::OnceLock<LoginThrottle> = std::sync::OnceLock::new();
 
 pub async fn admin_login(
-    State(_pool): State<crate::db::DbPool>,
+    State(pool): State<crate::db::DbPool>,
+    headers: axum::http::HeaderMap,
     axum::Form(req): axum::Form<AdminLoginRequest>,
 ) -> Result<axum::response::Response> {
-    check_login_rate_limit()?;
-    record_login_attempt();
     use axum::http::header::{HeaderValue, SET_COOKIE};
 
-    let config = crate::config::Config::from_env().map_err(|_| AppError::Internal)?;
-    if req.password != config.admin_password {
+    let throttle = LOGIN_THROTTLE.get_or_init(LoginThrottle::new);
+    let ip = client_ip(&headers);
+    if !throttle.allow(&ip) {
+        return Err(AppError::RateLimited);
+    }
+
+    let expected = std::env::var("DEKO_ADMIN_PASSWORD").unwrap_or_default();
+    if expected.is_empty() || !constant_time_eq(&req.password, &expected) {
+        // uniform error whether empty or wrong; do not leak which
         return Err(AppError::Unauthorized("Invalid password".into()));
     }
 
-    let cookie_value = format!(
-        "deko_admin={}; Path=/; HttpOnly; SameSite=Strict; Max-Age=28800",
-        req.password
-    );
-    let mut headers = axum::http::HeaderMap::new();
-    headers.insert(
-        SET_COOKIE,
-        HeaderValue::from_str(&cookie_value).map_err(|_| AppError::Internal)?,
-    );
+    let token = crate::services::session::create(&pool, "password").await?;
 
+    let cookie_value = format!(
+        "deko_session={}; Path=/; HttpOnly; SameSite=Strict; Max-Age={}",
+        token,
+        crate::services::session::SESSION_TTL.as_secs()
+    );
     let mut response = axum::Json(serde_json::json!({ "ok": true })).into_response();
-    *response.headers_mut() = headers;
+    if let Ok(val) = HeaderValue::from_str(&cookie_value) {
+        response.headers_mut().insert(SET_COOKIE, val);
+    }
     Ok(response)
 }
 
