@@ -109,11 +109,9 @@ pub async fn create_action(
     }
 
     if let Some(ref url) = req.target_url {
-        if !url.starts_with("http://") && !url.starts_with("https://") {
-            return Err(AppError::BadRequest(
-                "target_url must start with http:// or https://".into(),
-            ));
-        }
+        // full egress validation at the door: dangerous targets are refused
+        // on submit, not discovered at forward time
+        crate::services::egress::ValidatedUrl::parse(url).map_err(AppError::BadRequest)?;
     }
 
     if let Some(ref ik) = req.idempotency_key {
@@ -504,6 +502,18 @@ pub async fn forward_action(
         return Err(AppError::BadRequest("Action already forwarded (idempotent)".into()));
     }
 
+    // validate the target before touching state; agents control this url and
+    // deko must never become a pivot into internal networks.
+    let validated_target = match (&action.target_url, &action.target_method) {
+        (Some(url), Some(_method)) => crate::services::egress::ValidatedUrl::parse(url)
+            .map_err(AppError::BadRequest)?,
+        _ => {
+            return Ok(Json(
+                serde_json::json!({ "forwarded": false, "note": "No target URL configured" }),
+            ))
+        }
+    };
+
     match verdict.decision {
         VerdictDecision::Approved => {
             sqlx::query("UPDATE actions SET status = ? WHERE id = ?")
@@ -513,72 +523,55 @@ pub async fn forward_action(
                 .await
                 .map_err(AppError::Database)?;
 
-            let response = if let (Some(url), Some(method)) = (&action.target_url, &action.target_method) {
-                let client = reqwest::Client::builder()
-                    .timeout(std::time::Duration::from_secs(10))
-                    .build()
-                    .map_err(|_| AppError::Internal)?;
-
-                let body = action.payload.clone().unwrap_or_default();
-                let decision_str = format!("{}", verdict.decision);
-
-                let mut last_error = None;
-                let mut success = None;
-
-                for attempt in 1..=3 {
-                    let req_builder = match method.to_uppercase().as_str() {
-                        "POST" => client.post(url).body(body.clone()),
-                        "DELETE" => client.delete(url),
-                        "PUT" => client.put(url).body(body.clone()),
-                        "PATCH" => client.patch(url).body(body.clone()),
-                        _ => client.get(url),
-                    }
-                    .header("X-Deko-Action-Id", &id)
-                    .header("X-Deko-Agent-Id", &agent.id)
-                    .header("X-Deko-Verdict", &decision_str);
-
-                    match req_builder.send().await {
-                        Ok(r) if r.status().is_success() => {
-                            let status = r.status().as_u16();
-                            let resp_body = r.text().await.unwrap_or_default();
-                            success = Some((status, resp_body, attempt));
-                            break;
-                        }
-                        Ok(r) => {
-                            last_error = Some(format!("HTTP {}", r.status()));
-                        }
-                        Err(e) => {
-                            last_error = Some(e.to_string());
-                        }
-                    }
-
-                    if attempt < 3 {
-                        tokio::time::sleep(std::time::Duration::from_millis(500 * attempt as u64)).await;
-                    }
-                }
-
-                if let Some((status, resp_body, attempts)) = success {
-                    // Apply response transformation
-                    let transformed_body = if let Some(ref transform) = action_metadata_transform(&action.metadata) {
-                        apply_transform(&resp_body, transform)
-                    } else {
-                        resp_body.clone()
-                    };
+            let response = match execute_forwarded_request(
+                &pool,
+                &id,
+                &agent.id,
+                &verdict.decision.to_string(),
+                action.target_method.as_deref().unwrap_or("GET"),
+                action.payload.as_deref(),
+                &validated_target,
+            )
+            .await {
+                Ok((status, resp_body, attempts)) => {
+                    let transformed_body =
+                        if let Some(ref transform) = action_metadata_transform(&action.metadata) {
+                            apply_transform(&resp_body, transform)
+                        } else {
+                            resp_body.clone()
+                        };
                     serde_json::json!({
                         "forwarded": true,
                         "target_status": status,
                         "target_response": transformed_body,
                         "forward_attempts": attempts,
                     })
-                } else {
+                }
+                Err(forward_err) => {
+                    // honest failure: revert to forward_failed so the agent can retry
+                    sqlx::query("UPDATE actions SET status = ? WHERE id = ?")
+                        .bind(ActionStatus::ForwardFailed)
+                        .bind(&id)
+                        .execute(&pool)
+                        .await
+                        .ok();
+
+                    sqlx::query("INSERT INTO audit_log (id, action_id, event_type, details) VALUES (?, ?, 'forward_failed', ?)")
+                        .bind(uuid::Uuid::new_v4().to_string())
+                        .bind(&id)
+                        .bind(serde_json::json!({
+                            "error": forward_err,
+                            "target_url": action.target_url,
+                        }))
+                        .execute(&pool)
+                        .await
+                        .ok();
+
                     serde_json::json!({
-                        "forwarded": true,
-                        "forward_error": last_error.unwrap_or_else(|| "Max retries exceeded".to_string()),
-                        "forward_attempts": 3,
+                        "forwarded": false,
+                        "forward_error": forward_err,
                     })
                 }
-            } else {
-                serde_json::json!({ "forwarded": true, "note": "No target URL configured" })
             };
 
             Ok(Json(response))
@@ -589,6 +582,127 @@ pub async fn forward_action(
             verdict.reason
         ))),
     }
+}
+
+/// relays an approved action to its validated target.
+///
+/// security properties:
+/// - every hop (initial + redirects) passes the egress guard, including dns
+/// - redirects are followed manually with a hard cap; reqwest auto-follow is off
+/// - only transport failures produce Err; any real http response is Ok
+///   (the target's own 4xx/5xx is an honest outcome, not a deko failure)
+async fn execute_forwarded_request(
+    pool: &crate::db::DbPool,
+    action_id: &str,
+    agent_id: &str,
+    decision: &str,
+    method: &str,
+    payload: Option<&str>,
+    initial_target: &crate::services::egress::ValidatedUrl,
+) -> std::result::Result<(u16, String, u32), String> {
+    const MAX_ATTEMPTS: u32 = 3;
+    const MAX_REDIRECTS: usize = 3;
+    const RESPONSE_BODY_CAP: usize = 256 * 1024;
+
+    // redirects disabled: we follow manually so each hop re-enters the guard
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|_| "client build failed".to_string())?;
+
+    let mut last_error = String::from("no attempts made");
+
+    for attempt in 1..=MAX_ATTEMPTS {
+        let mut current = initial_target.clone();
+        let mut current_method = method.to_string();
+        let mut body = payload.unwrap_or_default().to_string();
+        let mut hops = 0usize;
+
+        loop {
+            if let Err(e) = current.assert_resolvable().await {
+                last_error = e;
+                break;
+            }
+
+            let url_str = current.as_str().to_string();
+            let req_builder = match current_method.as_str() {
+                "POST" => client.post(&url_str).body(body.clone()),
+                "DELETE" => client.delete(&url_str),
+                "PUT" => client.put(&url_str).body(body.clone()),
+                "PATCH" => client.patch(&url_str).body(body.clone()),
+                _ => client.get(&url_str),
+            }
+            .header("X-Deko-Action-Id", action_id)
+            .header("X-Deko-Agent-Id", agent_id)
+            .header("X-Deko-Verdict", decision);
+
+            match req_builder.send().await {
+                Ok(r) => {
+                    let status = r.status();
+
+                    if status.is_redirection() {
+                        if hops >= MAX_REDIRECTS {
+                            return Err(format!("exceeded {} redirect hops", MAX_REDIRECTS));
+                        }
+                        let loc = r
+                            .headers()
+                            .get(reqwest::header::LOCATION)
+                            .and_then(|v| v.to_str().ok())
+                            .ok_or_else(|| "redirect without location header".to_string())?;
+                        let next_url = reqwest::Url::parse(current.as_str())
+                            .map_err(|e| format!("bad current url: {}", e))?
+                            .join(loc)
+                            .map_err(|e| format!("bad redirect location: {}", e))?;
+                        let next = crate::services::egress::ValidatedUrl::parse(next_url.as_str())?;
+                        if status == reqwest::StatusCode::SEE_OTHER {
+                            current_method = "GET".to_string();
+                            body.clear();
+                        }
+                        current = next;
+                        hops += 1;
+                        continue;
+                    }
+
+                    let full_body = r.text().await.unwrap_or_default();
+                    let resp_body = if full_body.len() > RESPONSE_BODY_CAP {
+                        format!("{}…[truncated]", &full_body[..RESPONSE_BODY_CAP])
+                    } else {
+                        full_body
+                    };
+
+                    sqlx::query(
+                        "INSERT INTO audit_log (id, action_id, event_type, details) VALUES (?, ?, 'action_forwarded', ?)",
+                    )
+                    .bind(uuid::Uuid::new_v4().to_string())
+                    .bind(action_id)
+                    .bind(serde_json::json!({
+                        "target_status": status.as_u16(),
+                        "attempts": attempt,
+                        "hops": hops + 1,
+                    }))
+                    .execute(pool)
+                    .await
+                    .ok();
+
+                    return Ok((status.as_u16(), resp_body, attempt));
+                }
+                Err(e) => {
+                    last_error = e.to_string();
+                    break;
+                }
+            }
+        }
+
+        if attempt < MAX_ATTEMPTS {
+            tokio::time::sleep(std::time::Duration::from_millis(500 * attempt as u64)).await;
+        }
+    }
+
+    Err(format!(
+        "forward failed after {} attempts: {}",
+        MAX_ATTEMPTS, last_error
+    ))
 }
 
 fn action_metadata_transform(metadata: &Option<String>) -> Option<serde_json::Value> {

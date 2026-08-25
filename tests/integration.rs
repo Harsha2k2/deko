@@ -723,3 +723,177 @@ async fn test_swagger_docs_served() {
         .unwrap();
     assert_eq!(openapi.status(), 200);
 }
+
+// ---- forwarding honesty + egress guard ----
+
+async fn start_forward_app() -> (std::net::SocketAddr, deko::db::DbPool, String, String) {
+    let (pool, pool_set) = setup_test_db().await;
+    let config = test_config();
+    let app = create_router(
+        &config,
+        pool.clone(),
+        pool_set.clone(),
+        std::sync::Arc::new(deko::services::ws_broadcaster::WsBroadcaster::new(64)),
+    )
+    .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let (agent_id, api_key) = TestFixtures::create_agent(&pool, "forward-agent").await.unwrap();
+    (addr, pool, agent_id, api_key)
+}
+
+async fn create_action_with_target(
+    pool: &deko::db::DbPool,
+    agent_id: &str,
+    target_url: Option<&str>,
+) -> String {
+    TestFixtures::create_action_with_details(
+        pool,
+        agent_id,
+        "test forward action",
+        None,
+        target_url,
+        Some("GET"),
+    )
+    .await
+    .unwrap()
+}
+
+async fn approve_action(pool: &deko::db::DbPool, action_id: &str) {
+    sqlx::query("INSERT INTO verdicts (id, action_id, decision, reason, risk_level, policy_matched, llm_raw_response) VALUES (?, ?, 'approved', 'test approve', 'low', NULL, '{}')")
+        .bind(uuid::Uuid::new_v4().to_string())
+        .bind(action_id)
+        .execute(pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE actions SET status = 'approved' WHERE id = ?")
+        .bind(action_id)
+        .execute(pool)
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn test_forward_blocked_for_private_target_is_honest_failure() {
+    let (addr, _pool, _agent_id, api_key) = start_forward_app().await;
+    let client = reqwest::Client::new();
+
+    // dangerous targets are refused at submit time, before any state exists
+    let resp = client
+        .post(format!("http://127.0.0.1:{}/action", addr.port()))
+        .header("X-API-Key", &api_key)
+        .json(&serde_json::json!({
+            "intent": "fetch metadata",
+            "target_url": "http://169.254.169.254/latest/meta-data/",
+            "target_method": "GET"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 400, "metadata endpoint must be rejected at creation");
+
+    for bad_target in [
+        "http://127.0.0.1/admin",
+        "http://192.168.1.1/",
+        "http://10.0.0.5/x",
+        "file:///etc/passwd",
+        "https://evil.com@127.0.0.1/",
+    ] {
+        let resp = client
+            .post(format!("http://127.0.0.1:{}/action", addr.port()))
+            .header("X-API-Key", &api_key)
+            .json(&serde_json::json!({
+                "intent": "probe",
+                "target_url": bad_target,
+                "target_method": "GET"
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 400, "should reject {}", bad_target);
+    }
+}
+
+#[tokio::test]
+async fn test_forward_approved_loopback_reports_failure_not_success() {
+    let (addr, pool, agent_id, api_key) = start_forward_app().await;
+    let client = reqwest::Client::new();
+
+    // .invalid tld is guaranteed unresolvable (rfc 2606): passes the guard,
+    // then fails at dns -> exercises the honest forward_failed path
+    let action_id = create_action_with_target(&pool, &agent_id, Some("https://unreachable.invalid/x")).await;
+    approve_action(&pool, &action_id).await;
+
+    let resp = client
+        .post(format!("http://127.0.0.1:{}/action/{}/forward", addr.port(), action_id))
+        .header("X-API-Key", &api_key)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(body["forwarded"], false, "guard must block loopback egress");
+
+    let status: (String,) = sqlx::query_as("SELECT status FROM actions WHERE id = ?")
+        .bind(&action_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(status.0, "forward_failed");
+}
+
+#[tokio::test]
+async fn test_forward_denied_action_returns_403() {
+    let (addr, pool, agent_id, api_key) = start_forward_app().await;
+    let client = reqwest::Client::new();
+
+    let action_id = create_action_with_target(&pool, &agent_id, Some("https://api.example.com/x")).await;
+    sqlx::query("INSERT INTO verdicts (id, action_id, decision, reason, risk_level, policy_matched, llm_raw_response) VALUES (?, ?, 'denied', 'nope', 'high', NULL, '{}')")
+        .bind(uuid::Uuid::new_v4().to_string())
+        .bind(&action_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE actions SET status = 'denied' WHERE id = ?")
+        .bind(&action_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let resp = client
+        .post(format!("http://127.0.0.1:{}/action/{}/forward", addr.port(), action_id))
+        .header("X-API-Key", &api_key)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 403);
+}
+
+#[tokio::test]
+async fn test_forward_escalated_action_returns_423() {
+    let (addr, pool, agent_id, api_key) = start_forward_app().await;
+    let client = reqwest::Client::new();
+
+    let action_id = create_action_with_target(&pool, &agent_id, Some("https://api.example.com/x")).await;
+    sqlx::query("INSERT INTO verdicts (id, action_id, decision, reason, risk_level, policy_matched, llm_raw_response) VALUES (?, ?, 'escalate', 'needs human', 'medium', NULL, '{}')")
+        .bind(uuid::Uuid::new_v4().to_string())
+        .bind(&action_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE actions SET status = 'escalated' WHERE id = ?")
+        .bind(&action_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let resp = client
+        .post(format!("http://127.0.0.1:{}/action/{}/forward", addr.port(), action_id))
+        .header("X-API-Key", &api_key)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 423);
+}

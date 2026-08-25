@@ -25,10 +25,6 @@ impl ValidatedUrl {
         self.0.as_str()
     }
 
-    pub fn host_str(&self) -> Option<&str> {
-        self.0.host_str()
-    }
-
     /// validates scheme, userinfo absence, and literal-ip safety.
     /// does not touch dns (see `assert_resolvable`).
     pub fn parse(raw: &str) -> Result<Self, String> {
