@@ -152,7 +152,14 @@ pub async fn create_action(
                     return Ok(detail.into_response());
                 }
             }
-            return Ok((StatusCode::OK, Json(CreateActionResponse { id: existing_id, status })).into_response());
+            return Ok((
+                StatusCode::OK,
+                Json(CreateActionResponse {
+                    id: existing_id,
+                    status,
+                }),
+            )
+                .into_response());
         }
     }
 
@@ -235,10 +242,7 @@ async fn wait_for_verdict_with_timeout(
     }
 }
 
-async fn wait_for_verdict_response(
-    pool: &crate::db::DbPool,
-    action_id: &str,
-) -> Option<Json<ActionDetailResponse>> {
+async fn wait_for_verdict_response(pool: &crate::db::DbPool, action_id: &str) -> Option<Json<ActionDetailResponse>> {
     let action = sqlx::query_as::<_, Action>(
         "SELECT id, agent_id, intent, payload, screenshot_base64, metadata, status, target_url, target_method, created_at, updated_at, idempotency_key, priority, execute_at FROM actions WHERE id = ?",
     )
