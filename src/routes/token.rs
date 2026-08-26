@@ -11,6 +11,12 @@ type DbPool = crate::db::DbPool;
 ///
 /// Accepts `X-API-Key` header (legacy) or `Authorization: Bearer <api_key>` header.
 /// Returns a signed JWT valid for the configured duration.
+#[utoipa::path(
+    post,
+    path = "/auth/token",
+    responses((status = 200, description = "JWT issued")),
+    security(("ApiKey" = []))
+)]
 pub async fn exchange_token(
     State(pool): State<DbPool>,
     Extension(config): Extension<Config>,

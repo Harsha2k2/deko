@@ -326,11 +326,18 @@ pub async fn get_action_status(
     Ok(response)
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct BatchActionRequest {
     pub actions: Vec<CreateActionRequest>,
 }
 
+#[utoipa::path(
+    post,
+    path = "/actions/batch",
+    request_body = BatchActionRequest,
+    responses((status = 201, description = "Batch created")),
+    security(("ApiKey" = []))
+)]
 pub async fn batch_create_actions(
     State(pool): State<crate::db::DbPool>,
     axum::Extension(agent): axum::Extension<Agent>,
