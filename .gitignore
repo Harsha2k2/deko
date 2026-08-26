@@ -13,3 +13,5 @@ node_modules/
 admin/dist/
 data/uploads/
 audit-head-checkpoint.txt
+__pycache__/
+*.pyc
