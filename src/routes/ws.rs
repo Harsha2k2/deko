@@ -11,6 +11,13 @@ fn json_msg(val: serde_json::Value) -> Message {
     Message::Text(Utf8Bytes::from(val.to_string()))
 }
 
+#[utoipa::path(
+    get,
+    path = "/action/{id}/ws",
+    params(("id" = String, Path, description = "Action ID")),
+    responses((status = 101, description = "WebSocket upgrade")),
+    security(("ApiKey" = []))
+)]
 pub async fn action_ws_handler(
     ws: WebSocketUpgrade,
     State(pool): State<DbPool>,

@@ -38,7 +38,20 @@ pub async fn agent_auth_middleware(State(state): State<AuthState>, request: Requ
         .get("Authorization")
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "))
-        .map(str::to_owned);
+        .map(str::to_owned)
+        .or_else(|| {
+            // browser WebSocket cannot set headers — allow ?token=<jwt> query fallback
+            request.uri().query().and_then(|q| {
+                for pair in q.split('&') {
+                    if let Some(t) = pair.strip_prefix("token=") {
+                        if !t.is_empty() {
+                            return Some(t.to_string());
+                        }
+                    }
+                }
+                None
+            })
+        });
 
     if let Some(token) = bearer {
         match crate::middleware::jwt::validate_token(&token, &state.jwt.jwt_secret) {
