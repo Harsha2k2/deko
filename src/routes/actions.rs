@@ -71,17 +71,30 @@ pub struct ListActionsResponse {
     pub total: i64,
 }
 
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+pub struct CreateActionQuery {
+    /// when true, hold the connection until a verdict is ready (max `timeout` secs)
+    pub wait: Option<bool>,
+    /// max seconds to hold when `wait=true` (default 30, capped at 60)
+    pub timeout: Option<u64>,
+}
+
 /// Submit a new action for security review.
 ///
 /// The action is saved with status `pending` and processed asynchronously.
 /// The caller receives an `action_id` to poll for the verdict.
+/// With `?wait=true` the server holds the request until a verdict exists
+/// (up to `timeout` seconds) and returns the full detail including verdict —
+/// one round-trip for the common fast path.
 #[utoipa::path(
     post,
     path = "/action",
     tag = "actions",
+    params(CreateActionQuery),
     request_body = CreateActionRequest,
     responses(
         (status = 201, description = "Action created", body = CreateActionResponse),
+        (status = 200, description = "Action created + verdict when wait=true", body = ActionDetailResponse),
         (status = 401, description = "Invalid or missing API key"),
     ),
     security(("ApiKey" = []))
@@ -89,8 +102,9 @@ pub struct ListActionsResponse {
 pub async fn create_action(
     State(pool): State<crate::db::DbPool>,
     axum::Extension(agent): axum::Extension<Agent>,
+    Query(query): Query<CreateActionQuery>,
     Json(req): Json<CreateActionRequest>,
-) -> Result<(StatusCode, Json<CreateActionResponse>)> {
+) -> Result<axum::response::Response> {
     if req.intent.trim().is_empty() {
         return Err(AppError::BadRequest("intent is required".into()));
     }
@@ -133,13 +147,12 @@ pub async fn create_action(
                 "forwarded" => ActionStatus::Forwarded,
                 _ => ActionStatus::Pending,
             };
-            return Ok((
-                StatusCode::OK,
-                Json(CreateActionResponse {
-                    id: existing_id,
-                    status,
-                }),
-            ));
+            if query.wait == Some(true) {
+                if let Some(detail) = wait_for_verdict_response(&pool, &existing_id).await {
+                    return Ok(detail.into_response());
+                }
+            }
+            return Ok((StatusCode::OK, Json(CreateActionResponse { id: existing_id, status })).into_response());
         }
     }
 
@@ -186,13 +199,88 @@ pub async fn create_action(
     )
     .await?;
 
+    if query.wait == Some(true) {
+        let timeout = query.timeout.unwrap_or(30).min(60);
+        if let Some(resp) = wait_for_verdict_with_timeout(&pool, &id, timeout).await {
+            return Ok(resp.into_response());
+        }
+        // timeout: still return the pending id so caller can continue polling
+    }
+
     Ok((
         StatusCode::CREATED,
         Json(CreateActionResponse {
             id,
             status: ActionStatus::Pending,
         }),
-    ))
+    )
+        .into_response())
+}
+
+/// helper for `?wait=true`: poll until a verdict exists or timeout (seconds).
+async fn wait_for_verdict_with_timeout(
+    pool: &crate::db::DbPool,
+    action_id: &str,
+    timeout_secs: u64,
+) -> Option<Json<ActionDetailResponse>> {
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(timeout_secs);
+    loop {
+        if let Some(detail) = wait_for_verdict_response(pool, action_id).await {
+            return Some(detail);
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return None;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+    }
+}
+
+async fn wait_for_verdict_response(
+    pool: &crate::db::DbPool,
+    action_id: &str,
+) -> Option<Json<ActionDetailResponse>> {
+    let action = sqlx::query_as::<_, Action>(
+        "SELECT id, agent_id, intent, payload, screenshot_base64, metadata, status, target_url, target_method, created_at, updated_at, idempotency_key, priority, execute_at FROM actions WHERE id = ?",
+    )
+    .bind(action_id)
+    .fetch_optional(pool)
+    .await
+    .ok()??;
+
+    let verdict = sqlx::query_as::<_, Verdict>(
+        "SELECT id, action_id, decision, reason, risk_level, policy_matched, llm_raw_response, reasoning_chain, created_at FROM verdicts WHERE action_id = ?",
+    )
+    .bind(action_id)
+    .fetch_optional(pool)
+    .await
+    .ok()??;
+
+    let metadata_val = action
+        .metadata
+        .as_deref()
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok());
+
+    Some(Json(ActionDetailResponse {
+        id: action.id,
+        agent_id: action.agent_id,
+        intent: action.intent,
+        payload: action.payload,
+        metadata: metadata_val,
+        status: action.status,
+        target_url: action.target_url,
+        target_method: action.target_method,
+        created_at: action.created_at,
+        updated_at: action.updated_at,
+        verdict: Some(VerdictResponse {
+            id: verdict.id,
+            action_id: verdict.action_id,
+            decision: verdict.decision,
+            reason: verdict.reason,
+            risk_level: verdict.risk_level,
+            reasoning_chain: verdict.reasoning_chain,
+            created_at: verdict.created_at,
+        }),
+    }))
 }
 
 #[utoipa::path(

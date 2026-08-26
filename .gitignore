@@ -12,3 +12,4 @@
 node_modules/
 admin/dist/
 data/uploads/
+audit-head-checkpoint.txt
