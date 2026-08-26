@@ -1,0 +1,56 @@
+[project]
+name = "deko-guard"
+version = "2.0.0a0"
+description = "control plane for ai agent actions — one-line guard for langgraph / crewai / openai / mcp"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Deko" }]
+requires-python = ">=3.10"
+dependencies = [
+  "httpx>=0.27",
+  "anyio>=4",
+]
+keywords = ["ai-agents", "guardrails", "langgraph", "mcp", "security"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Typing :: Typed",
+]
+dynamic = ["version"]
+
+[project.optional-dependencies]
+langgraph = ["langgraph>=0.2"]
+crewai = ["crewai>=0.80"]
+openai = ["openai>=1.0"]
+mcp = ["mcp>=1.0", "websockets>=12"]
+testing = ["pytest>=8", "pytest-asyncio>=0.23", "respx>=0.21"]
+
+[project.urls]
+Homepage = "https://github.com/Harsha2k2/deko"
+Documentation = "https://github.com/Harsha2k2/deko/blob/master/docs/sdk-architecture.md"
+
+[project.scripts]
+deko-guard = "deko_guard.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+path = "src/deko_guard/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/deko_guard"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
