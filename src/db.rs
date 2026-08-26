@@ -52,9 +52,12 @@ async fn create_pool(url: &str) -> anyhow::Result<DbPool> {
 pub async fn init_db(config: &Config) -> anyhow::Result<(DbPool, Arc<DbPoolSet>)> {
     info!("Initializing database connection");
 
-    // wal mode: concurrent readers during background writes; required for
-    // the polling processor + request path on one database file
-    let url = if config.database_url.starts_with("sqlite:") && !config.database_url.contains('?') {
+    // wal mode for file dbs; shared cache for in-memory dbs so all pool
+    // connections see the same database (otherwise each connection gets a
+    // private :memory: db and the processor never sees the handler's rows)
+    let url = if config.database_url.contains(":memory:") {
+        "sqlite::memory:?cache=shared".to_string()
+    } else if config.database_url.starts_with("sqlite:") && !config.database_url.contains('?') {
         format!("{}?mode=rwc", config.database_url)
     } else {
         config.database_url.clone()
