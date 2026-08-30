@@ -1,6 +1,7 @@
-FROM lukemathwalker/cargo-chef:latest-rust-1 AS chef
+FROM rust:1.98-bookworm AS chef
 WORKDIR /app
-RUN apt-get update && apt-get install -y libsqlite3-dev && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y libsqlite3-dev pkg-config && rm -rf /var/lib/apt/lists/* \
+    && cargo install cargo-chef --locked
 
 # admin spa: built once, copied into the runtime image
 FROM node:18-slim AS admin-ui
