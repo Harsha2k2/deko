@@ -1,36 +1,35 @@
-# sdk v2 — `deko-guard` 2.0.0
+# deko-guard 2.0.0 — one-line guard for any agent
 
 `pip install deko-guard` / `npm install deko-guard`
 
-## python quick start (langgraph first)
+zero-config — `Deko()` reads `DEKO_URL` (default `http://localhost:8000`) and `DEKO_API_KEY` from env.
+
+## python
 
 ```python
 from deko_guard import Deko
-deko = Deko()  # reads DEKO_URL=http://localhost:8000, DEKO_API_KEY
+deko = Deko()
 
-# decorator — one line
-@deko.guard(auto_forward=True)
-def refund(order_id: str, amount: float):
-    """refund a customer"""
-    return {"order_id": order_id, "amount": amount}
+@deko.guard  # sync, wait=true by default → one http round-trip
+def refund(order_id: str, amount: float): return {"order_id": order_id, "amount": amount}
 
-refund(order_id="ord_123", amount=500)  # raises DekoDeniedError if blocked
+refund(order_id="ord_123", amount=500)  # ok → runs, blocked → raises DekoDeniedError
+# async: @deko.aguard  + await refund(...)
+
+# one-shot without decorator
+v = deko.check(intent="delete all users")  # → Verdict(decision="denied", reason=..., risk_level=...)
 ```
 
-**langgraph:**
+adapters (same core, behind extras):
+- `pip install deko-guard[langgraph]` → `from deko_guard.adapters.langgraph import guard_tools, deko_node`
+- `pip install deko-guard[openai|crewai|mcp]` → `guard_openai_tools`, `guard_crewai_tools`, `deko-guard mcp --upstream "npx ..."`
+- `deko-guard proxy --port 8080` + `HTTP_PROXY=http://localhost:8080` — zero code change, egress blocklist mirrored
+
+admin plane separate (`from deko_guard.admin import DekoAdmin`, needs `DEKO_ADMIN_PASSWORD`):
 ```python
-from deko_guard.adapters.langgraph import guard_tools, deko_node
-guarded = guard_tools([refund, transfer], deko)
-graph.add_node("tools", deko_node(guarded, deko))
+admin = DekoAdmin(password="...")
+admin.create_policy(name="no-delete", rules=[{"type":"deny_keyword","keywords":["delete"]}])
 ```
-
-**openai / crewai:** `from deko_guard.adapters.openai import guard_openai_tools` / `crewai import guard_crewai_tools` — same pattern.
-
-**mcp gate:** `deko-guard mcp --upstream "npx @modelcontextprotocol/server-filesystem /tmp"` — intercepts `tools/call`, approved → upstream, denied → `McpError -32600`.
-
-**http proxy:** `deko-guard proxy --port 8080` + `export HTTP_PROXY=http://localhost:8080` — zero code change.
-
-**admin plane (separate):** `from deko_guard.admin import DekoAdmin` — `pip install deko-guard[admin]` mental model, needs `DEKO_ADMIN_PASSWORD`.
 
 ## typescript
 
@@ -41,6 +40,12 @@ const safe = deko.guard(transferTool);
 import { dekoMiddleware } from "deko-guard/vercel";
 ```
 
-## architecture
+## live demo
 
-See `../docs/sdk-architecture.md` for the 16-section plan covering core client (httpx sync+async, `?wait=true` one-roundtrip, ws→poll fallback), framework adapters, mcp gate, proxy, and 8 backend fixes.
+`../deko-agents` has 5 ready agents (plain, langgraph, crewai, openai, mcp). after `deko` is up: `pip install -e ../deko/sdk/python && python deko_setup.py && python run_all.py`
+
+see `../docs/sdk-architecture.md` for 16-section plan, backend `?wait` + `?token` fixes, and `shared/openapi.json`.
+
+## publish
+
+`2.0.0a0` tracks deko server `0.1.x` — `0.2.x` requires `deko >=0.1.8`.
